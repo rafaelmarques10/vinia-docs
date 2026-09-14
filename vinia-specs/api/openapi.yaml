@@ -1,0 +1,356 @@
+openapi: 3.1.0
+
+info:
+  title: Vinia API
+  version: 1.0.0
+  description: API REST da plataforma Vinia — carta de vinhos digital com IA
+
+servers:
+  - url: https://api.vinia.app/api/v1
+    description: Produção
+  - url: http://localhost:8000/api/v1
+    description: Local
+
+security:
+  - TabletToken: []
+
+components:
+  securitySchemes:
+    TabletToken:
+      type: http
+      scheme: bearer
+      description: Token gerado ao cadastrar o tablet no backoffice
+
+  schemas:
+    Restaurant:
+      type: object
+      properties:
+        id:          { type: integer }
+        name:        { type: string }
+        slug:        { type: string }
+        logo_url:    { type: string, nullable: true }
+        primary_color:   { type: string, example: "#7B2D8B" }
+        secondary_color: { type: string, example: "#C0392B" }
+
+    Wine:
+      type: object
+      properties:
+        id:           { type: integer }
+        name:         { type: string }
+        producer:     { type: string }
+        vintage:      { type: integer, nullable: true }
+        country:      { type: string }
+        region:       { type: string, nullable: true }
+        type:
+          type: string
+          enum: [tinto, branco, rosé, espumante, sobremesa, fortificado]
+        grapes:
+          type: array
+          items: { type: string }
+        alcohol:      { type: number, nullable: true }
+        price:        { type: number, format: float }
+        description:  { type: string, nullable: true }
+        tasting_notes: { type: string, nullable: true }
+        pairings:     { type: string, nullable: true }
+        photo_url:    { type: string, nullable: true }
+        available:    { type: boolean }
+
+    WineFilters:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [tinto, branco, rosé, espumante, sobremesa, fortificado]
+        country:    { type: string }
+        grape:      { type: string }
+        price_min:  { type: number }
+        price_max:  { type: number }
+        search:     { type: string, description: "Busca por nome ou produtor" }
+        page:       { type: integer, default: 1 }
+        per_page:   { type: integer, default: 30 }
+
+    Session:
+      type: object
+      properties:
+        id:              { type: string, format: uuid }
+        tablet_id:       { type: integer }
+        restaurant_id:   { type: integer }
+        palate_profile:  { type: object, nullable: true }
+        started_at:      { type: string, format: date-time }
+        ended_at:        { type: string, format: date-time, nullable: true }
+
+    AiInteraction:
+      type: object
+      properties:
+        id:          { type: integer }
+        session_id:  { type: string, format: uuid }
+        type:
+          type: string
+          enum: [recommend_dish, recommend_palate, compare, free_question]
+        status:
+          type: string
+          enum: [pending, processing, done, failed]
+        response:    { type: string, nullable: true }
+        created_at:  { type: string, format: date-time }
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:    { type: string }
+            message: { type: string }
+            details: { type: object }
+
+paths:
+
+  # ─── RESTAURANTE ──────────────────────────────────────────
+  /restaurant:
+    get:
+      summary: Dados do restaurante do tablet autenticado
+      tags: [Restaurant]
+      responses:
+        "200":
+          description: Dados do restaurante
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Restaurant" }
+        "401":
+          description: Token inválido
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  # ─── VINHOS ───────────────────────────────────────────────
+  /wines:
+    get:
+      summary: Lista vinhos disponíveis com filtros
+      tags: [Wines]
+      parameters:
+        - name: type
+          in: query
+          schema: { type: string, enum: [tinto, branco, rosé, espumante, sobremesa, fortificado] }
+        - name: country
+          in: query
+          schema: { type: string }
+        - name: grape
+          in: query
+          schema: { type: string }
+        - name: price_min
+          in: query
+          schema: { type: number }
+        - name: price_max
+          in: query
+          schema: { type: number }
+        - name: search
+          in: query
+          schema: { type: string }
+          description: Busca por nome ou produtor
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, default: 30, maximum: 100 }
+      responses:
+        "200":
+          description: Lista de vinhos disponíveis
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Wine" }
+                  meta:
+                    type: object
+                    properties:
+                      total:    { type: integer }
+                      page:     { type: integer }
+                      per_page: { type: integer }
+
+  /wines/{id}:
+    get:
+      summary: Detalhe de um rótulo
+      tags: [Wines]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Detalhe do vinho
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Wine" }
+        "404":
+          description: Vinho não encontrado ou indisponível
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  # ─── SESSÕES ──────────────────────────────────────────────
+  /sessions:
+    post:
+      summary: Criar sessão anônima
+      tags: [Sessions]
+      responses:
+        "201":
+          description: Sessão criada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Session" }
+
+  /sessions/{id}:
+    patch:
+      summary: Atualizar sessão (palate_profile ou ended_at)
+      tags: [Sessions]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                palate_profile:
+                  type: object
+                  properties:
+                    color_preference: { type: string }
+                    body_preference:  { type: string }
+                    taste_preference: { type: string }
+                    price_range:      { type: string }
+                ended_at:
+                  type: string
+                  format: date-time
+      responses:
+        "200":
+          description: Sessão atualizada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Session" }
+        "403":
+          description: Sessão pertence a outro tablet
+
+  # ─── IA ───────────────────────────────────────────────────
+  /ai/recommend:
+    post:
+      summary: Solicitar recomendação por prato ou perfil de paladar
+      tags: [AI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session_id, type, input]
+              properties:
+                session_id:
+                  type: string
+                  format: uuid
+                type:
+                  type: string
+                  enum: [recommend_dish, recommend_palate]
+                input:
+                  type: object
+                  description: |
+                    Para recommend_dish: { "dish": "filé ao molho de cogumelos" }
+                    Para recommend_palate: { "color": "tinto", "body": "encorpado", "taste": "seco", "price_range": "200-500" }
+      responses:
+        "202":
+          description: Job de IA disparado — usar interaction_id para polling
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      interaction_id: { type: integer }
+                      status: { type: string, example: pending }
+        "429":
+          description: Rate limit de IA atingido para esta sessão
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /ai/compare:
+    post:
+      summary: Solicitar comparativo entre dois rótulos
+      tags: [AI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session_id, wine_a_id, wine_b_id]
+              properties:
+                session_id: { type: string, format: uuid }
+                wine_a_id:  { type: integer }
+                wine_b_id:  { type: integer }
+      responses:
+        "202":
+          description: Job de comparativo disparado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      interaction_id: { type: integer }
+                      status: { type: string, example: pending }
+        "422":
+          description: Um dos rótulos não está disponível
+
+  /ai/interactions/{id}:
+    get:
+      summary: Consultar status e resultado de uma interação de IA (polling)
+      tags: [AI]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Status atual da interação
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/AiInteraction" }
+        "404":
+          description: Interação não encontrada
+
+tags:
+  - name: Restaurant
+    description: Dados do restaurante para configuração da carta
+  - name: Wines
+    description: Catálogo de vinhos disponíveis
+  - name: Sessions
+    description: Gestão de sessões anônimas dos comensais
+  - name: AI
+    description: Endpoints de inteligência artificial (Sofia)
