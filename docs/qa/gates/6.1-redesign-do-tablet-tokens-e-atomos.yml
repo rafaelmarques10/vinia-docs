@@ -1,0 +1,47 @@
+schema: 1
+story: '6.1'
+story_title: 'Redesign do Tablet — Tokens e Átomos'
+gate: CONCERNS
+status_reason: 'CA01 a CA19 implementados e testados, com test/typecheck/lint/build verdes. Dois riscos não bloqueantes a tratar antes do deploy: as cores padrão do banco (#7B2D8B/#C0392B) passam a pintar o tablet via CA04, e o reset em @layer base muda mais telas do que o @dev listou.'
+reviewer: 'Quinn'
+updated: '2026-10-07T12:10:00-03:00'
+branch: 'feat/redesign-tablet-6.1 @ d7dc287 (vinia-src)'
+
+evidence:
+  tests: 'npm run test — 4 arquivos, 79/79 passando (Node 20.10, worktree limpo, npm ci)'
+  typecheck: 'npm run typecheck (tsc -b) — exit 0'
+  lint: 'npm run lint — 0 erros, 1 warning preexistente (SessionContext.tsx, react-refresh)'
+  build: 'npm run build — ok (CSS 21,3 kB / JS 348,8 kB; pressable, tela-entrada, type-*, bg-placeholder, aspect-garrafa e :focus-visible presentes no CSS gerado)'
+  visual: 'Screenshots headless (Chrome, 1280x800) comparando main x branch em /, /wines e /assistant, sem API'
+  dangling_refs: 'Nenhuma referência a WineCard, WineFiltersBar ou App.css; tipo WineFilters em types/ mantido'
+
+top_issues:
+  - id: 'REQ-001'
+    severity: medium
+    finding: 'CA04 liga --wine/--gold às cores do restaurante, mas as colunas restaurants.primary_color e secondary_color são NOT NULL com default #7B2D8B (roxo) e #C0392B (vermelho) na migration. Os defaults da marca (#6E1A22/#D4AF37) quase nunca valem na prática. Restaurante que não personalizou as cores vê o botão primário roxo e os detalhes "dourados" em vermelho, com contraste de 3,33:1 sobre --bg (falha no AA; a tabela do CA01 só vale para os defaults).'
+    suggested_action: 'Antes do push/deploy: conferir primary/secondary dos restaurantes reais em produção e ajustá-los, ou abrir story (@po/@data-engineer) para trocar o default da migration para #6E1A22/#D4AF37 e validar contraste no RestaurantSettings.'
+  - id: 'REL-001'
+    severity: medium
+    finding: 'Com o reset em @layer base, todo utilitário de padding/margin, e também bg/border/font-size/font-family em <button>, que antes era anulado passa a valer. O efeito é maior do que o @dev listou: header da WineHomePage (px-[14px]), taça decorativa centralizada (mx-auto), card "Sugestão do Sommelier" com fundo bg-surface, estado vazio da WineListPage (py-12), e botões com text-sm ou text-[12.5px] que diminuem de 16px. O "Ver Carta" da EntryPage cai para 12,5px, abaixo do piso de 13px. Nas screenshots, AssistantPage e EntryPage ficaram claramente melhores (cards com borda/padding e botão vinho), mas são mudanças visuais nas telas.'
+    suggested_action: 'Rafael confere no tablet real as telas listadas em QA Results. Os tamanhos abaixo de 13px nos botões das páginas ficam com as stories 6.2 a 6.5, que não podem esquecer deles.'
+  - id: 'TEST-001'
+    severity: low
+    finding: 'O jsdom não tem CSS.supports, então o ramo de validação de cor inválida do ThemeProvider nunca roda nos testes: "banana" é gravado como válido. Em navegador real o guard funciona e o backend já valida /^#[0-9A-Fa-f]{6}$/.'
+    suggested_action: 'Adicionar um teste com vi.stubGlobal do CSS.supports cobrindo valor inválido -> removeProperty.'
+  - id: 'MNT-001'
+    severity: low
+    finding: '--hairline e --hairline-strong continuam fixos em rgba(212,175,55,…) e não acompanham a secundária do restaurante.'
+    suggested_action: 'Avaliar na 6.2: derivar com color-mix(var(--gold) 16%/35%, transparent), se a spec pedir.'
+  - id: 'DOC-001'
+    severity: low
+    finding: 'CodeRabbit não foi executado (CLI configurado para WSL; ambiente macOS).'
+    suggested_action: 'Opcional: rodar CodeRabbit no PR pelo @devops.'
+
+nfr_validation:
+  security: { status: PASS, notes: 'setProperty só grava o valor da custom property; CSS.supports no navegador mais regex hex no backend. Nenhum dangerouslySetInnerHTML.' }
+  performance: { status: PASS, notes: 'Nenhuma dependência nova de runtime (só devDependencies). Foto com lazy/async e aspect fixo.' }
+  reliability: { status: CONCERNS, notes: 'REL-001 (mudança visual ampla pelo @layer base)' }
+  maintainability: { status: PASS, notes: 'Átomos pequenos e tipados, tokens centralizados, taça única via Icon.' }
+  accessibility: { status: CONCERNS, notes: 'Átomos sem violações axe. Contraste dos defaults ok, mas falha com a secundária default do banco (REQ-001).' }
+
+waiver: { active: false }

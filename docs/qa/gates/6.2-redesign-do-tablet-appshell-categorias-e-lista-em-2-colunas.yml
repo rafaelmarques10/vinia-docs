@@ -1,0 +1,63 @@
+schema: 1
+story: '6.2'
+story_title: 'Redesign do Tablet — AppShell, Categorias e Lista em 2 Colunas'
+gate: CONCERNS
+status_reason: 'Todos os CAs do escopo (CA01–CA16, CA22, CA23, CA25–CA28) estão implementados e testados, com test/typecheck/lint/build verdes, e o CA09 foi medido em Chrome real: 336px em 1080 e 459px em 1366, sem desvio. O que fica é o risco REQ-001 da 6.1 (cores padrão do banco), agora visível em toda a carta, e três ajustes visuais baixos.'
+reviewer: 'Quinn'
+updated: '2026-10-07T12:40:00-03:00'
+branch: 'feat/redesign-tablet-6.2 @ debd5c8 (vinia-src), 6 commits sobre feat/redesign-tablet-6.1'
+
+evidence:
+  tests: 'npm test — 7 arquivos, 129/129 passando (Node 20.10, worktree isolado, npm ci limpo)'
+  typecheck: 'npm run typecheck (tsc -b) — exit 0'
+  lint: 'npm run lint — 0 erros, 1 warning preexistente (SessionContext.tsx, react-refresh)'
+  build: 'npm run build — ok (CSS 24,8 kB / JS 350,9 kB; +2,1 kB de JS em relação à 6.1)'
+  browser: >-
+    Playwright + Chromium headless, Vite dev com API mockada (10 rótulos, 1 esgotado, nome longo), em /wines e /wines/tipo/tinto.
+    1080x810: barra 300px, grid "336px 336px", gap 36px.
+    1180x820: barra 300px, "386px 386px" (continua em 2 colunas).
+    1366x1024: barra 340px, "459px 459px".
+    820x1180: barra oculta, faixa visível, 1 coluna (764px), chips 48px, Sofia 56x56.
+    Em todos os tamanhos: itens da barra ≥ 72px, Sofia 56px com contorno dourado, linha mínima 125px, miniatura 64x88, destaque 240x320 com nome 36px, nome 24px, meta 16px, preço 22px, nenhum texto < 16px fora de caixa-alta (eyebrows 13px, botão 15px), nenhum alvo < 48px, sem rolagem horizontal.
+  navigation: 'Navegador real: /wines → Rosés (aria-current correto, inclusive com "rosé" codificado na URL) → linha → /wines/5 → voltar reabre a categoria com o item ativo. Carta → rótulo em 2 toques.'
+  inactivity: 'InactivityGuard é cópia fiel da lógica da WineHomePage (mesmos WARNING_MS/INACTIVITY_MS, mesmo goHome com PATCH ended_at, setSessionId(null), navigate("/")). O T6.2-13 cobre /wines e /wines/tipo/:type com timers falsos, e também o "Continuar navegando".'
+  theme_risk: 'Com as cores default do banco (#7B2D8B/#C0392B), screenshots mostram contagens, eyebrow "N RÓTULOS", chevron, filete do ativo e botão Sofia em vermelho, com 3,33:1 sobre --bg e 3,14:1 sobre --surface. Os filetes continuam dourados (MNT-001 da 6.1).'
+
+top_issues:
+  - id: 'REQ-001'
+    severity: medium
+    finding: 'O REQ-001 do gate da 6.1 continua aberto e agora aparece em toda a carta. Com os defaults da migration (#C0392B), os acentos "dourados" do AppShell ficam vermelhos, a 3,33:1: contagens 16px, eyebrows 13px e "Sofia" 15px. Isso fica abaixo do AA para texto pequeno (CA26). O preço do destaque, em 30px, passa no limite de 3:1 para texto grande. Com as cores da marca (#D4AF37, 8,60:1) passa.'
+    suggested_action: 'Antes do deploy, Rafael confere primary_color e secondary_color dos restaurantes em produção. Se algum estiver no default, ajustar o cadastro ou abrir uma story para @po/@data-engineer trocar o default da migration e validar o contraste no RestaurantSettings.'
+  - id: 'REL-002'
+    severity: low
+    finding: 'Com a barra em 300px (1024–1279px), o item ATIVO cresce de ~74px para ~98px: o chevron tira espaço e a descrição ("Encorpados & estruturados") quebra em 2 linhas. Ao tocar numa categoria, os itens abaixo descem 24px. Em 340px (≥ 1280) não acontece.'
+    suggested_action: '@dev: reservar a largura do chevron também nos itens inativos, ou usar truncate/line-clamp-1 na descrição, ou reduzir o pr-7. Conferir em 1080 e 1180.'
+  - id: 'MNT-002'
+    severity: low
+    finding: 'Em colunas de 336px (1080), a linha "região · uva · safra" e o produtor longo são truncados. Ex.: "Puente Alto · Caber…", "TENUTA SAN GUI…". A safra some em parte das linhas. É efeito das 2 colunas fixas da spec, não erro de implementação.'
+    suggested_action: '@ux-design-expert decide se a safra deve ter prioridade (ex.: safra antes da uva ou meta em 2 linhas) quando corrigir a spec §2.'
+  - id: 'A11Y-001'
+    severity: low
+    finding: 'O anel de foco (2px, offset 2px) dos itens da barra lateral é cortado à esquerda e à direita pelo overflow-y-auto do <nav>. Aparecem só as linhas de cima e de baixo. No tablet o foco por teclado é raro.'
+    suggested_action: 'Usar outline-offset negativo (-2px) nos itens da barra ou dar padding horizontal ao <nav>.'
+  - id: 'DOC-001'
+    severity: low
+    finding: 'CA09 verificado em navegador por este gate, mas a caixa continua desmarcada na story (checkbox é do @dev). CodeRabbit não executado (CLI só para WSL, ambiente macOS).'
+    suggested_action: '@dev marca o CA09 citando este gate. CodeRabbit é opcional no PR (@devops).'
+
+observations:
+  - 'Decisão do @dev "Sofia como Link estilizado" é aceita: o CA03 pede contorno dourado, a variante gold do Button é preenchida, e é navegação (a). Medido: 56px de altura, borda rgb(212,175,55).'
+  - 'Decisão "Todos os rótulos inclui o destaque" é aceita: bate com o título e com o total do cabeçalho. O destaque aparece duas vezes em /wines, o que o Rafael confere se gosta.'
+  - 'Nota do CA12: a API filtra Wine::available(), então o selo "Esgotado" só aparece com dados em cache ou se a API mudar. Testado com fixture (T6.2-06) e conferido no navegador com mock. Opacidade .5 no conteúdo; o selo fica com contraste cheio.'
+  - 'Em /wines/tipo/:type há duas consultas com polling de 60s (todos, para as contagens, e o tipo). Está previsto nas Dev Notes e foi testado. /wines reutiliza a mesma chave de cache (["wines", {}]) da barra, sem requisição dupla.'
+  - 'REL-001 da 6.1: WineHomePage e WineListPage foram removidas, então os itens dela que citavam essas páginas deixam de existir. Os botões < 13px de EntryPage/Detalhe/Sofia continuam com as stories 6.3 a 6.5.'
+  - 'Voltar do detalhe recria o AppShell e o painel volta ao topo da lista. Mesmo comportamento da WineListPage antiga, não é regressão.'
+
+nfr_validation:
+  security: { status: PASS, notes: 'Sem dangerouslySetInnerHTML. O tipo da URL só vira texto (categoryMeta) e parâmetro de query (axios codifica). Nenhuma dependência nova.' }
+  performance: { status: PASS, notes: 'Sem dependência de runtime nova. Fotos lazy/async com caixa fixa (64x88 e 240x320, sem CLS). Polling de 60s mantido, sem polling extra além das contagens previstas.' }
+  reliability: { status: PASS, notes: 'Estados de carregando, erro (com retry), vazio e erro de polling com cache cobertos. Inatividade preservada.' }
+  maintainability: { status: PASS, notes: 'Componentes pequenos e tipados, InactivityGuard reaproveitável para a 6.6, helpers puros testados em utils.test.ts, tokens em vez de valores soltos.' }
+  accessibility: { status: CONCERNS, notes: 'axe sem violações nos dois layouts. nav/aria-current, ul/li, alvos e tamanhos medidos em navegador. Contraste falha só com a secundária default do banco (REQ-001). Foco cortado na barra (A11Y-001).' }
+
+waiver: { active: false }
