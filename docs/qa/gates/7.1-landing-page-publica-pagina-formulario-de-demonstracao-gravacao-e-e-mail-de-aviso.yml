@@ -1,0 +1,99 @@
+schema: 1
+story: '7.1'
+story_title: 'Landing page pública — página, formulário de demonstração, gravação e e-mail de aviso'
+gate: CONCERNS
+status_reason: 'Os 24 CAs estão implementados e cobertos por teste. O formulário resistiu às sondas de segurança, a migration roda em SQLite e MySQL 8, o .htaccess é válido em Apache real e a landing não teve violação do axe em 375/768/1366. Ficam 2 riscos médios para antes do merge: SMTP inalcançável trava a requisição até o fatal de 30 s (com o pedido já gravado) e a copy promete aviso de conexão que ainda não está na main.'
+reviewer: 'Quinn'
+updated: '2026-10-07T14:30:00-03:00'
+branch: 'feat/landing-page-7.1 @ 3dcb9bc (vinia-src), 6 commits sobre main 0879ab5. Worktree próprio do QA, removido ao fim; worktree do @dev intocado.'
+
+evidence:
+  tests: 'php artisan test (SQLite em memória): 137/137, 450 asserções. Landing: 42 testes / 186 asserções (T7.1-01..08 mapeados no testdox).'
+  tests_mysql: 'Mesma suíte com DB_CONNECTION=mysql no vinia-mysql (banco descartável qa_71, removido): 137/137.'
+  migration: 'MySQL 8.0.46: migrate, rollback e migrate de novo ok. SHOW CREATE TABLE confere com o CA08: colunas da spec, status default novo, índices em status e created_at, sem ip nem user_agent. SQLite (arquivo): migrate, rollback e migrate ok.'
+  build: 'npm ci + npm run build (Node 22.22.2): ok. landing-*.css (10,1 kB) separado do app-*.css (48,5 kB).'
+  htaccess: 'Apache 2.4.62 local com o public/.htaccess da branch (AllowOverride All): httpd -t ok, sem erro no error.log. /tablet/ -> X-Robots-Tag noindex + no-cache. /tablet/assets/* -> noindex + immutable (os dois <If> convivem). manifest -> noindex + no-cache. /tablet -> 301 para /tablet/. Rewrite com ?token=64hex continua indo ao index.php. / e /robots.txt servem 200.'
+  backoffice_login: 'GET /backoffice/login 200 (teste e navegador). O logout continua indo ao login. redirectGuestsTo/redirectUsersTo sem mudança.'
+  security_probes: >-
+    Testes de sonda no worktree do QA, descartados depois: mass assignment (status=contatado, consent_at, id, created_at no POST) é ignorado, porque o Service mapeia campo a campo de validated().
+    XSS (<script>, "><img onerror>) sai escapado no e-mail HTML e no valor reenviado com erro (input e textarea).
+    CRLF + "Bcc:" no restaurante não injeta cabeçalho: o Symfony dobra tudo no Subject codificado.
+    Arrays nos campos dão 302 com erro, sem 500.
+    Honeypot com o resto vazio dá sucesso, sem gravar e sem erros.
+    Throttle por IP conta envios de honeypot e inválidos: o 6º dá 429 com Retry-After; outro IP passa.
+    GET /demonstracao dá 405. POST sem token dá 419.
+  browser_a11y: >-
+    Playwright 1.60 + Chromium headless + axe-core (wcag2a/aa, 21aa, 22aa, best-practice), com as FAQs abertas.
+    375x812, 768x1024 e 1366x900: 0 violações, rolagem horizontal 0, container de no máximo 1120px, corpo 17px Inter, títulos Cormorant, fundo rgb(26,21,19), 0 erros de console.
+    Foco: todos os focáveis com outline sólido de 2px ouro e :focus-visible (skip-link, nav, CTA, 6 summary, 7 campos, link do aviso, enviar, acesso do restaurante).
+    Estado de erro sem JS: volta a /#demo e rola até o formulário. aria-invalid + aria-describedby (name-error, email-error, phone-hint phone-error, consent-hint consent-error). Alerta role=alert. Valor "<b>Cantina</b>" reenviado literal. axe 0 violações.
+    Envio válido sem JS: grava (só colunas da spec) e mostra "Recebemos seu pedido. Entraremos em contato em breve.".
+    prefers-reduced-motion: reduce -> scroll-behavior auto e nenhuma transição/animação ativa.
+    Alvos: único < 48px é o link "Sofia" do menu (39x48) em 768 e 1366.
+  copy_traceability: >-
+    Texto lido inteiro e conferido com F001–F008 e a spec §4: passos (F002/F003/F004), Sofia por prato/paladar cor-corpo-estilo/comparar sem vencedor (F006, F007 RN05), Esgotado sem recarregar (F005 RN06), logo e cores (F001/F005 RN02), revogar tablet (F004 RN03), 3 min (F005 RN03), sem login (RN05), offline (RN08), sessão anônima (F008 RN02), iPad (spec §4), preço "combinamos na demonstração" (Q4).
+    Sem fornecedor de IA, ganho mensurável, cliente, depoimento, plano ou valor. O mock do hero não tem nomes nem preços.
+  mail_failure: 'Exceção do transporte: pedido gravado, sucesso e Log::warning (teste T7.1-06 e reproduzido). Sem From: o envio falha com "An email must have a From", é capturado e o pedido continua gravado. SMTP inalcançável (10.255.255.1): Fatal "Maximum execution time of 30+2 seconds" em SocketStream.php, não capturável. O pedido ficou gravado, o cliente não recebeu resposta, e o reenvio gerou um pedido duplicado.'
+  coderabbit: 'Não executado (CLI só no WSL; ambiente macOS).'
+
+top_issues:
+  - id: 'REL-001'
+    severity: medium
+    finding: 'O envio síncrono não tem timeout: config/mail.php tem smtp.timeout = null, e o socket herda default_socket_timeout=60. Com o SMTP inalcançável (firewall, host errado, porta bloqueada na hospedagem), a requisição para no connect até o max_execution_time (30 s). O resultado é um Fatal, que o try/catch não captura, e o visitante não recebe resposta ou recebe 500. O pedido já está gravado e o reenvio duplica. Reproduzido localmente, com 2 linhas "Timeout QA". Contraria o espírito do CA16 ("não afeta a resposta").'
+    suggested_action: '@dev: no mailer smtp, timeout => env("MAIL_TIMEOUT", 10) (ou 5), documentar MAIL_TIMEOUT no .env.example e no guia, e testar com host inalcançável. No servidor, Rafael confere se a Hostinger libera saída na porta 465/587.'
+  - id: 'REQ-001'
+    severity: medium
+    finding: 'A copy é rastreável à F005 (RN08/CA06), mas promete o que a main ainda não entrega. "Para o comensal: Se a conexão cair, a carta avisa." e o FAQ: "a carta avisa que pode estar desatualizada e a Sofia fica indisponível até a conexão voltar". Na main, o OfflineBanner existe mas não está montado: ele só é montado em feat/redesign-tablet-6.1, que está Done e ainda não foi mergeada. O aviso específico da Sofia offline ("Assistente indisponível sem conexão", F005 CA06) não existe em nenhuma branch.'
+    suggested_action: 'Fazer o merge da 6.1 antes da 7.1 (ou junto). Para a Sofia, trocar por algo verdadeiro hoje ("a Sofia precisa de conexão para responder") ou abrir item para a 6.5 implementar o aviso da F005 CA06. Rafael decide.'
+  - id: 'REQ-002'
+    severity: low
+    finding: 'O FAQ "Que dados do comensal vocês guardam?" responde só que a sessão é anônima e que "não pedimos dados pessoais". A resposta é rastreável (F008 RN02), mas omite que o perfil de paladar (F008 RN04) e as perguntas feitas à Sofia (F006 RN05, ai_interactions) ficam guardados, por 90 dias (F008 RN07). Texto livre digitado pelo comensal pode conter dado pessoal.'
+    suggested_action: 'Incluir na revisão jurídica (Q1). Por exemplo: "Guardamos, sem identificar o comensal, as respostas do perfil de paladar e as perguntas à Sofia."'
+  - id: 'REL-002'
+    severity: low
+    finding: 'O risco já conhecido foi confirmado: POST com token expirado ou sem token dá 419 com a página padrão do Laravel, em inglês ("Page Expired"), e tudo o que foi digitado se perde. Acontece com a página aberta além de SESSION_LIFETIME=120 min. Além disso, cada visita anônima à landing cria uma sessão no banco (SESSION_DRIVER=database).'
+    suggested_action: 'Story curta: tratar TokenMismatchException em POST /demonstracao, voltando a /#demo com withInput e a mensagem "Sua página ficou aberta muito tempo; envie de novo". Outra opção é tirar a rota do CSRF, que é formulário público sem sessão autenticada e já tem honeypot e throttle. Decisão do Rafael/@architect.'
+  - id: 'REL-003'
+    severity: low
+    finding: 'O .env.example traz MAIL_FROM_ADDRESS= vazio. Quem copia o exemplo fica sem remetente e todo envio falha, inclusive com MAIL_MAILER=log no dev ("An email must have a From"). A falha é silenciosa para o visitante (só warning). O guia (§6.2) manda preencher, então o risco é de esquecimento.'
+    suggested_action: '@dev: pôr um placeholder (ex.: contato@vinia.ia.br) ou fallback em config/mail.php. Rafael confere no checklist do deploy.'
+  - id: 'A11Y-001'
+    severity: low
+    finding: 'O link "Sofia" do menu do cabeçalho mede 39x48 em 768 e 1366, abaixo dos 48px do CA20 (passa no WCAG 2.5.8, que pede 24px). Os eyebrows (13px), os botões (15px) e o CTA pequeno do header (13px) são caixa-alta e não são texto corrido. Mesma régua do Epic 6, aceito.'
+    suggested_action: '@dev: dar min-width 48px (ou padding horizontal) aos links do .site-nav.'
+  - id: 'SEC-001'
+    severity: low
+    finding: 'O throttle usa $request->ip() com TRUSTED_PROXIES=*, configuração anterior a esta story. Se a origem for acessível sem o proxy, um robô pode girar o X-Forwarded-For e escapar dos 5/min. O honeypot continua valendo. Não foi explorado, é análise de código.'
+    suggested_action: 'Observação para @devops/@architect quando revisarem o proxy da Hostinger. Nada a fazer na 7.1.'
+  - id: 'TEST-001'
+    severity: low
+    finding: 'Nenhum teste automatizado cobre escape de XSS no e-mail e nos valores reenviados, mass assignment de status/consent_at nem envio com a configuração real de mail (todos usam Mail::fake, por isso o REL-003 passou). As sondas do QA confirmaram o comportamento correto.'
+    suggested_action: '@dev: incorporar 2 ou 3 desses casos ao DemoRequestStoreTest junto com o fix do REL-001.'
+  - id: 'DOC-001'
+    severity: low
+    finding: 'O Change Log da story não registra as transições do @dev (Ready → InProgress → InReview), que são obrigatórias no dev-develop-story. O spec da landing ainda diz "rascunho v0.1", apesar de aprovado.'
+    suggested_action: '@dev/@sm: registrar as transições. O autor da spec atualiza o cabeçalho.'
+
+merge_blockers_reminder:
+  - 'Já na story, fora deste gate: revisão jurídica do texto LGPD. O marcador visível [CONTATO PARA EXCLUSÃO] ainda está na página.'
+  - 'Já na story: SMTP (MAIL_*, DEMO_NOTIFY_TO) no servidor.'
+  - 'Já na story: Story 7.3, default de users.role para manager e auditoria de admins.'
+  - 'Deste gate: REL-001 (timeout SMTP) e REQ-001 (ordem de merge 6.1 → 7.1 ou ajuste de texto).'
+  - 'Retenção de 12 meses prometida sem rotina de expurgo (pendência do @po).'
+
+observations:
+  - 'Honeypot antes da validação (rules() vazio) está correto: o robô não aprende nada pelas mensagens de erro.'
+  - 'A página 429 própria via Limit::response() não afeta os 429 da API e tem noindex.'
+  - 'O e-mail text/plain usa {!! !!} de propósito: não é HTML. O HTML escapa tudo e usa nl2br(e()) na mensagem.'
+  - 'A migration usa string(20) para status, não enum. É portável e bate com o CA08.'
+  - 'Desvio MAIL_ENCRYPTION → MAIL_SCHEME conferido no config/mail.php do Laravel: correto.'
+  - 'O link do e-mail para /backoffice/demonstracoes dá 404 até a 7.2. É esperado.'
+
+nfr_validation:
+  security: { status: PASS, notes: 'CSRF ativo, honeypot, throttle 5/min por IP, FormRequest com limites, mass assignment fechado, XSS escapado, sem injeção de cabeçalho, sem IP/UA gravados. SEC-001 é observação de infraestrutura.' }
+  performance: { status: CONCERNS, notes: 'Página leve (CSS 10 kB, sem JS). Envio síncrono sem timeout de SMTP (REL-001). Uma sessão no banco por visita.' }
+  reliability: { status: CONCERNS, notes: 'A exceção do e-mail não apaga o pedido (testado). Timeout de SMTP vira fatal e duplicação (REL-001). 419 perde os dados (REL-002). From vazio no exemplo (REL-003).' }
+  maintainability: { status: PASS, notes: 'Controller fino, Service, FormRequest, config própria, testes legíveis com IDs T7.1. Pint não é exigido no repo.' }
+  accessibility: { status: PASS, notes: 'axe 0 violações em 3 larguras e no estado de erro. Sem overflow horizontal, foco visível, erros associados, reduced-motion respeitado e funciona sem JS. Ressalva baixa: A11Y-001.' }
+
+waiver: { active: false }
