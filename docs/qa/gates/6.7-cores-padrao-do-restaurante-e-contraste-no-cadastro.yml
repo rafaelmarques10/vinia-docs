@@ -1,0 +1,74 @@
+schema: 1
+story: '6.7'
+story_title: 'Cores padrão do restaurante (primary_color/secondary_color) e contraste mínimo no cadastro'
+gate: CONCERNS
+status_reason: >-
+  Código pronto para produção: migration reversível e sem UPDATE (provada em MySQL 8 com linhas antigas intactas),
+  regra WCAG correta, vazio/null grava a marca, regra aplicada em todo save(). Suíte verde em SQLite e MySQL 8.
+  CONCERNS por causa da operação, não do código. O roteiro de produção da story usa where() no MySQL, que
+  ignora maiúsculas/minúsculas (utf8mb4_unicode_ci) e não acha cores personalizadas que reprovam no contraste.
+  Além disso, o CA16 trava todo save() de restaurante com cor reprovada até alguém corrigir. Usar o roteiro
+  corrigido abaixo, logo depois do deploy. CA06 (execução em produção) continua aberto, como previsto.
+reviewer: 'Quinn'
+updated: '2026-10-08T13:00:00-03:00'
+branch: 'integracao/teste-exploratorio @ d8013a4 (vinia-src), inclui feat/cores-padrao-6.7 e feat/cores-ajuda-6.7b'
+
+evidence:
+  tests_sqlite: 'php artisan test — 227/227 passando, 166.010 asserções (worktree detached, SQLite em memória)'
+  tests_mysql: 'php artisan test com DB_CONNECTION=mysql no container vinia-mysql (MySQL 8.0.46), banco descartável qa_67_test — 227/227; confirmado que as tabelas e a migration 2026_10_07_180334 foram criadas no MySQL. Banco apagado no fim'
+  migration_mysql: >-
+    Banco descartável qa_67_mig: antes da migration, colunas varchar(7) NOT NULL DEFAULT #7B2D8B/#C0392B. Linhas inseridas: uma no
+    default e uma personalizada. migrate deixou DEFAULT #6E1A22/#D4AF37 (NOT NULL, collation mantida), com as duas linhas intactas e a
+    linha nova já com a marca. rollback --step=1 voltou aos defaults antigos sem tocar em nenhuma linha. migrate de novo ficou ok.
+    A migration só tem ->change(), sem UPDATE.
+  rule_values: 'Probe fora do repositório: #9CD3A3+#F07A7A → só a primária reprova, sugestão #1B3C1F e sem erro de par; marca+#F07A7A → #F18383; marca+#C0392B → #E38B82; #9CD3A3+#C0392B → #0E2010 e #D85D50; aplicar em qualquer ordem dá o mesmo resultado, todo válido'
+  empty_null: 'primary_color "" e secondary_color null → save() grava #6E1A22/#D4AF37 sem exceção (SQLite e MySQL)'
+  ca16: 'Restaurante #7B2D8B/#C0392B salvando só o nome → erro em secondary_color e nome não gravado. No navegador, o restaurante do DemoSeeder (#7B2D8B/#C9A96E, par 3,62:1) também não salva o nome até corrigir a secundária'
+  browser: 'Chrome headless (Playwright), php artisan serve :8600, SQLite próprio + DemoSeeder, login demo@lavigne.com — ver gate 6.7b'
+
+top_issues:
+  - id: 'OPS-001'
+    severity: medium
+    finding: >-
+      O roteiro de conferência da story dá falso positivo e falso negativo. (a) No MySQL, where("primary_color", "#7B2D8B") ignora
+      maiúsculas/minúsculas, então também traz #7b2d8b/#c0392b, que é cor escolhida no seletor nativo (ele grava em minúsculas).
+      O passo 2 trocaria essa cor como se fosse "nunca personalizada". Reproduzido: o where devolveu os ids 1 e 4, e o 4 tinha
+      sido escolhido no seletor. (b) As consultas só olham o default antigo e o vazio. Uma cor personalizada que reprova
+      (ex.: #7B2D8B+#C9A96E, igual ao DemoSeeder, ou qualquer secundária escura) não aparece, e esse restaurante fica travado
+      pelo CA16.
+    suggested_action: 'Rodar o roteiro corrigido (QA Results da story): auditoria com TabletColorContrast::feedback() e isHex() em todas as linhas, e correção automática só quando o par for exatamente "#7B2D8B"/"#C0392B" (comparação ===) ou vazio. Os demais casos só com o Rafael e o restaurante.'
+  - id: 'OPS-002'
+    severity: medium
+    finding: >-
+      Impacto em produção do CA16. Depois do deploy, um restaurante com cor reprovada não salva nada no backoffice
+      (nome, slug, CNPJ, logo) até corrigir a cor. Só com a 6.7, a pessoa vê o erro técnico só depois de clicar em Salvar.
+      Com a 6.7b, vê o erro ao abrir a tela e tem o botão "Usar sugestão". A trava em si é a decisão do @po (bloquear).
+    suggested_action: 'Fazer o deploy da 6.7 junto com a 6.7b, no mesmo merge ou em sequência imediata, e rodar o roteiro logo depois do deploy, antes de avisar os clientes.'
+  - id: 'SEC-001'
+    severity: low
+    finding: 'O regex /^#[0-9A-Fa-f]{6}$/ (isHex e a validação do save) aceita "#6E1A22\n", porque o $ casa antes de uma quebra de linha final. Por adulteração do Livewire, o SQLite gravou "#6E1A22\n". No MySQL de teste ficou "#6E1A22". Não dá para injetar CSS nem HTML, e pelo formulário isso não acontece (maxlength e input de texto).'
+    suggested_action: 'Trocar $ por \z ou usar o modificador D no regex do save(), nos #[Rule] e no isHex() (follow-up de baixo custo).'
+  - id: 'UX-001'
+    severity: low
+    finding: 'A mensagem de formato inválido aparece em inglês ("The primary color field format is invalid."). Já existia antes desta story: falta lang pt-BR ou mensagens customizadas.'
+    suggested_action: 'Backlog: mensagens de validação em português no RestaurantSettings.'
+  - id: 'TEST-001'
+    severity: low
+    finding: 'O CA14 pede o CI em MySQL 8. Rodei a suíte na mesma imagem (mysql:8.0) e passou 227/227, mas o job do CI só roda no push.'
+    suggested_action: '@devops confere o job "Testes (MySQL 8)" no push.'
+
+nfr_validation:
+  security: { status: PASS, notes: 'A regra roda no servidor em todo save(). Não dá para trocar o restaurant pelo Livewire ("Can not set model properties directly"). SEC-001 é baixo.' }
+  performance: { status: PASS, notes: 'ALTER de default em uma tabela pequena, cálculo puro em PHP' }
+  reliability: { status: CONCERNS, notes: 'Depende do roteiro em produção (OPS-001/OPS-002)' }
+  maintainability: { status: PASS, notes: 'Tokens em um só lugar no backend. A duplicação com o index.css é um débito aceito pelo @po' }
+
+blockers_production:
+  blocks:
+    - 'Merge na main das stories do Epic 6 (6.1 em diante): continua bloqueado até registrar o CA06 (decisão do @po).'
+    - 'Rodar o roteiro como está escrito na story: NÃO. Usar o roteiro corrigido (OPS-001).'
+  does_not_block:
+    - 'Merge e deploy desta story, desde que junto com a 6.7b e com o roteiro logo depois (OPS-002).'
+    - 'SEC-001, UX-001 e TEST-001.'
+
+waiver: { active: false }

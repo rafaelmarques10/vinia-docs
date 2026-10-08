@@ -4,7 +4,7 @@ story_title: 'Landing page pública — página, formulário de demonstração, 
 gate: CONCERNS
 status_reason: 'Os 24 CAs estão implementados e cobertos por teste. O formulário resistiu às sondas de segurança, a migration roda em SQLite e MySQL 8, o .htaccess é válido em Apache real e a landing não teve violação do axe em 375/768/1366. Ficam 2 riscos médios para antes do merge: SMTP inalcançável trava a requisição até o fatal de 30 s (com o pedido já gravado) e a copy promete aviso de conexão que ainda não está na main.'
 reviewer: 'Quinn'
-updated: '2026-10-07T14:30:00-03:00'
+updated: '2026-10-08T15:45:00-03:00'
 branch: 'feat/landing-page-7.1 @ 3dcb9bc (vinia-src), 6 commits sobre main 0879ab5. Worktree próprio do QA, removido ao fim; worktree do @dev intocado.'
 
 evidence:
@@ -95,5 +95,22 @@ nfr_validation:
   reliability: { status: CONCERNS, notes: 'A exceção do e-mail não apaga o pedido (testado). Timeout de SMTP vira fatal e duplicação (REL-001). 419 perde os dados (REL-002). From vazio no exemplo (REL-003).' }
   maintainability: { status: PASS, notes: 'Controller fino, Service, FormRequest, config própria, testes legíveis com IDs T7.1. Pint não é exigido no repo.' }
   accessibility: { status: PASS, notes: 'axe 0 violações em 3 larguras e no estado de erro. Sem overflow horizontal, foco visível, erros associados, reduced-motion respeitado e funciona sem JS. Ressalva baixa: A11Y-001.' }
+
+reverification:
+  date: '2026-10-08T15:45:00-03:00'
+  branch: 'integracao/teste-exploratorio @ d8013a4 (inclui as correções a62beee, ac6c3f2, 33d4a37 e fd856bd).'
+  gate_after: CONCERNS
+  resolved:
+    - 'REL-001: config/mail.php smtp timeout => env(MAIL_TIMEOUT, 10); .env.example MAIL_TIMEOUT=10. Testes sem Mail::fake (porta recusada e host 10.255.255.1) passam na suíte.'
+    - 'REL-003: .env.example MAIL_FROM_ADDRESS=no-reply@vinia.ia.br, com teste pelo mailer log real.'
+    - 'A11Y-001: Chrome real em 1366, links do menu "Como funciona" 115x48, "Sofia" 48x48 e "Perguntas" 77x48. Rolagem horizontal 0.'
+    - 'TEST-001: testes de mass assignment, XSS no e-mail HTML e XSS nos valores reenviados presentes e passando.'
+  still_open: ['REQ-001 (copy offline depende do merge da 6.1, que não está na main)', 'REQ-002', 'REL-002', 'SEC-001', 'DOC-001']
+  evidence: >-
+    Suíte 227/227 em SQLite e em MySQL 8.0.46 (container descartável).
+    Chrome real em php artisan serve: envio válido volta a /#demo com "Recebemos seu pedido" e grava.
+    O honeypot responde sucesso sem gravar. O erro (e-mail inválido, sem consentimento) dá aria-invalid em email e consent, role=alert, e "<b>XSS</b>" volta literal.
+    Throttle: o 6º POST no minuto dá 429 com a página própria em português. O pedido enviado aparece na lista da 7.2 com wa.me/55...
+    O marcador [CONTATO PARA EXCLUSÃO] continua visível em /.
 
 waiver: { active: false }

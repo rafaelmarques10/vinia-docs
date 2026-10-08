@@ -1,0 +1,18 @@
+schema: 1
+story: '6.5'
+story_title: 'Redesign do Tablet — Sofia em 2 colunas e estados'
+gate: PASS
+status_reason: 'Modo enxuto. Suíte, typecheck, lint e build verdes; navegador real nas 4 resoluções e nos 2 temas sem erro, overflow, alvo < 48px, texto < 13px ou contraste abaixo de AA.'
+reviewer: 'Quinn'
+updated: '2026-10-08T12:50:00-03:00'
+branch: 'integracao/teste-exploratorio @ d8013a4 (vinia-src)'
+
+evidence:
+  tests: 'npm test 563/563 (22 arquivos), Node 22, npm ci limpo'
+  typecheck: 'tsc -b ok'
+  lint: '0 erros, 1 warning preexistente (react-refresh)'
+  build: 'ok'
+  browser_common: 'Chrome headless + Playwright, Vite dev :5290, API mockada; capa → carta → categoria → popover → detalhe → Sofia em 1080x810, 1180x820, 1366x1024 e 810x1080, escuro e claro: 0 erros de console, sem overflow horizontal, nenhum alvo < 48px, nenhum texto < 13px, nenhum texto < AA'
+  story_specific: 'Fluxo "prato" ponta a ponta; resposta longa no painel sem esconder os fluxos; chips de retrato rolam na horizontal (CA23).'
+
+top_issues: []

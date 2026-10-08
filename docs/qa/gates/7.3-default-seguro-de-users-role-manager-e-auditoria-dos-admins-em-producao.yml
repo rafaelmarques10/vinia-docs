@@ -1,0 +1,30 @@
+schema: 1
+story: '7.3'
+story_title: 'Default seguro de users.role (manager) e auditoria dos admins em produção'
+gate: CONCERNS
+status_reason: 'A migration, os testes e o guia (CA01-04, CA06-09) estão corretos e foram provados em SQLite e MySQL 8, com rollback e sem tocar nos dados. Fica aberto o CA05, a auditoria dos admins em produção, que é passo manual do Rafael e bloqueia o merge de 7.1/7.2.'
+reviewer: 'Quinn'
+updated: '2026-10-08T15:45:00-03:00'
+branch: 'integracao/teste-exploratorio @ d8013a4 (vinia-src), que integra feat/role-default-7.3. Worktree detached do QA, removido ao fim.'
+
+evidence:
+  tests: 'php artisan test: 227/227 em SQLite e em MySQL 8.0.46 (container descartável). UserModelTest: default manager via User::create, NOT NULL mantido, factory manager, admin() admin.'
+  migration_mysql: 'migrate:fresh dá role varchar(255) NOT NULL DEFAULT manager. rollback --step=2 dá DEFAULT admin, e migrate de novo dá manager. Com 3 linhas pré-existentes (admin, owner e uma sem role, que nasceu admin), depois do migrate as 3 ficam iguais (sem UPDATE). Insert novo sem role nasce manager.'
+  migration_sqlite: 'Arquivo SQLite: rollback e migrate ok. As linhas existentes ficam intactas, insert sem role nasce manager, e a FK restaurant_id (ON DELETE CASCADE) e os índices de email são preservados na recriação da tabela.'
+  code_review: 'Migration nova; a 0001 não foi editada. change() reafirma nullable(false). O down() comenta que reverter reabre o risco.'
+  guide: 'DEPLOY-HOSTINGER.md §4.3 cria o restaurante como owner e diz que admin é reservado ao operador. O checklist cobre admin@vinia.app inexistente.'
+
+top_issues:
+  - id: 'REQ-001'
+    severity: medium
+    finding: 'O CA05 (auditoria dos admins em produção, com contagem e ids no Change Log) não foi executado. O default novo não rebaixa admins já criados: se alguma conta de restaurante nasceu admin pelo exemplo antigo do guia, ela passa a ver os pedidos de demonstração assim que a 7.2 for publicada.'
+    suggested_action: 'Rafael executa o "Roteiro de auditoria" antes do merge de 7.1/7.2 e registra contagem e ids no Change Log.'
+  - id: 'DOC-001'
+    severity: low
+    finding: 'O Change Log não registra as transições Ready → InProgress → InReview do @data-engineer.'
+    suggested_action: 'Registrar nas próximas stories.'
+
+auto_decisions:
+  - '[AUTO-DECISION] AC operacional (CA05) pendente → CONCERNS, e não FAIL (reason: todo o entregável de código e documentação está correto; o próprio CA05 define o momento como "antes do merge", fora do alcance do @dev/@qa; o merge segue bloqueado).'
+
+waiver: { active: false }

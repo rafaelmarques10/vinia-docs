@@ -1,0 +1,53 @@
+schema: 1
+story: '6.7b'
+story_title: 'Ajudar a escolher cores válidas no cadastro do restaurante (mensagem clara, sugestão e prévia ao vivo)'
+gate: PASS
+status_reason: >-
+  CA01 a CA21 conferidos no código, na suíte (SQLite e MySQL 8) e no navegador real. Os valores de referência do CA12
+  batem exatamente. applySuggestion só aceita primary/secondary, recalcula no servidor e não grava. O style só recebe
+  #RRGGBB, e a tentativa de adulterar pelo $wire não injeta nada. Sem regressão da 6.7.
+reviewer: 'Quinn'
+updated: '2026-10-08T13:00:00-03:00'
+branch: 'integracao/teste-exploratorio @ d8013a4 (vinia-src), inclui feat/cores-ajuda-6.7b'
+
+evidence:
+  tests_sqlite: 'php artisan test — 227/227 (166.010 asserções; inclui a grade de 4.096 cores em 4 papéis)'
+  tests_mysql: 'Mesma suíte no MySQL 8.0.46 (container vinia-mysql, banco descartável apagado no fim): 227/227. Fecha a pendência local do CA20; o job do CI roda no push'
+  reference_values: '#1B3C1F; #F18383; #E38B82; #0E2010 + #D85D50. Aplicar secundária→primária e primária→secundária dá o mesmo resultado, e feedback() fica vazio no fim'
+  tampering: >-
+    Livewire::test e $wire no navegador: applySuggestion com "name", "primary_color", "PRIMARY", " primary", "", "secondary_color"
+    e "restaurant" não altera nada. applySuggestion("primary", "#000000") ignora o hex do cliente e aplica #1B3C1F. Nenhuma
+    applySuggestion grava no banco. Com set primary_color = "red;background-image:url(//evil.example/x)" e secondary
+    "</style><script>...", nenhum style e nenhum HTML contém o valor. O save() recusa com erro de formato.
+    set("restaurant.id", outro) → exceção "Can't set model properties directly", e o outro restaurante fica intacto.
+  browser: >-
+    Chrome headless (Playwright), php artisan serve :8600, SQLite próprio + DemoSeeder, demo@lavigne.com.
+    #9cd3a3/#f07a7a: só a primária mostra a mensagem do CA01 + "Contraste medido: 1,48:1 (mínimo 4,5:1)." + botão
+    "Usar sugestão #1B3C1F"; secundária sem mensagem; prévia "Difícil de ler" x2. Clique → #1B3C1F, botão some, foco no
+    campo de texto da primária (x-ref primaryColorText), prévia "Fácil de ler" x2; Salvar grava. Duas falhas → dois botões
+    (#0E2010, #D85D50); aplicar um deixa só o outro; aplicar os dois deixa tudo válido. Save reprovado (#C0392B) → uma
+    mensagem só no campo; ao corrigir para #D4AF37 o erro velho some. Campos vazios + Salvar → banco #6E1A22/#D4AF37.
+    600px: amostras empilhadas. Console sem erros.
+
+top_issues:
+  - id: 'SEC-001'
+    severity: low
+    finding: 'É o mesmo SEC-001 do gate 6.7. isHex() aceita "#RRGGBB\n" por causa do $ no regex. No style isso não tem efeito, porque não sai do valor de cor.'
+    suggested_action: 'Usar \z no regex (follow-up junto com a 6.7).'
+  - id: 'PROD-001'
+    severity: low
+    finding: 'A Q6.7b-C continua com o Rafael: a sugestão da primária pode ficar bem escura (#1B3C1F para #9CD3A3). É decisão de produto, não defeito.'
+    suggested_action: 'Rafael confirma ou abre a candidata futura 2/3.'
+
+nfr_validation:
+  security: { status: PASS, notes: 'Whitelist estrita, recálculo no servidor, style só com #RRGGBB maiúsculo vindo de preview()' }
+  performance: { status: PASS, notes: 'Debounce de 300 ms nos dois inputs de cada cor; no máximo ~100 iterações com cache de luminância' }
+  reliability: { status: PASS, notes: 'Laço com teto de 101 passos; a grade de 4.096 cores prova que termina e que a sugestão sempre é válida' }
+  maintainability: { status: PASS, notes: 'Mesmas mensagens no save() e no feedback, tokens só em TabletColorContrast' }
+
+blockers_production:
+  blocks: []
+  does_not_block:
+    - 'Merge depois ou junto da 6.7. Recomendado junto, porque diminui o impacto do CA16 em produção (ver OPS-002 da 6.7).'
+
+waiver: { active: false }

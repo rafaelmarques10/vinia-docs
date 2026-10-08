@@ -1,0 +1,22 @@
+schema: 1
+story: '6.4'
+story_title: 'Redesign do Tablet — Capa (inclui correção da cor primária)'
+gate: CONCERNS
+status_reason: 'Modo enxuto. Suíte, typecheck, lint e build verdes; navegador real nas 4 resoluções e nos 2 temas sem erro, overflow, alvo < 48px, texto < 13px ou contraste abaixo de AA. Uma ressalva de contraste na capa (A11Y-001).'
+reviewer: 'Quinn'
+updated: '2026-10-08T12:50:00-03:00'
+branch: 'integracao/teste-exploratorio @ d8013a4 (vinia-src)'
+
+evidence:
+  tests: 'npm test 563/563 (22 arquivos), Node 22, npm ci limpo'
+  typecheck: 'tsc -b ok'
+  lint: '0 erros, 1 warning preexistente (react-refresh)'
+  build: 'ok'
+  browser_common: 'Chrome headless + Playwright, Vite dev :5290, API mockada; capa → carta → categoria → popover → detalhe → Sofia em 1080x810, 1180x820, 1366x1024 e 810x1080, escuro e claro: 0 erros de console, sem overflow horizontal, nenhum alvo < 48px, nenhum texto < 13px, nenhum texto < AA'
+  story_specific: 'Gradiente inteiro derivado da primária verde (centro rgb(30,81,40), borda oklab verde escuro); sem rolagem nas 4 resoluções (CA12).'
+
+top_issues:
+  - id: A11Y-001
+    severity: medium
+    finding: 'O eyebrow "Carta de Vinhos" (13px, --gold-ink) reprova AA sobre o fundo da capa quando a secundária não é ouro: 2,65 a 3,87:1 com verde #1E5128 + vermelho #C0392B, 2,31 a 3,53:1 com os defaults da migration. A guarda da 6.8 mede contra as superfícies do tema, não contra a primária. A limitação já está documentada pelo @dev.'
+    suggested_action: 'Story futura (@po/@ux): guarda de contraste da secundária contra --wine/--capa-borda na capa, ou eyebrow em on-wine. Até lá, ajustar as cores do restaurante no cadastro (a prévia da 6.7b ajuda).'

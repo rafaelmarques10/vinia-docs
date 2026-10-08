@@ -1,0 +1,46 @@
+schema: 1
+story: '7.2'
+story_title: 'Landing page — lista de demonstrações no backoffice (Gate admin)'
+gate: PASS
+status_reason: 'Os 8 CAs estão implementados e cobertos por teste. O Gate manage-demo-requests resistiu em navegador real (admin 200, manager 403, visitante vai ao login, replay Livewire de snapshot do admin por um manager dá 403). O que impede o merge na main é externo à story: a auditoria dos admins (7.3 CA05) e os bloqueios da 7.1.'
+reviewer: 'Quinn'
+updated: '2026-10-08T15:45:00-03:00'
+branch: 'integracao/teste-exploratorio @ d8013a4 (vinia-src), que integra feat/demonstracoes-7.2. Worktree detached do QA, removido ao fim.'
+
+evidence:
+  tests: 'php artisan test: 227/227 em SQLite em memória e 227/227 em MySQL 8.0.46 (container descartável mysql:8.0, removido). DemoRequestListTest 18, ManageDemoRequestsGateTest 3, DemoRequestModelTest (T7.2-07 e transições).'
+  browser: >-
+    Playwright + Google Chrome headless, php artisan serve :8700, SQLite próprio + DemoSeeder + admin e manager via tinker.
+    Visitante em /backoffice/demonstracoes vai para /backoffice/login. Manager: 403 e sem o link no menu.
+    Admin: 200, lista com nome, restaurante, contato, data e status, do mais recente para o mais antigo. Links mailto:<email> e https://wa.me/5511987654321 (telefone com 11 dígitos recebe o 55).
+    "Marcar como contatado" persiste (status contatado no banco) e troca os botões para Descartar/Reabrir. ?status=contatado lista 1.
+    Menu "Demonstrações" aparece para admin nos 2 layouts (/backoffice/demonstracoes usa components.backoffice-layout; /backoffice/wines usa backoffice.layouts.app).
+  tampering: 'O manager reenviou para /livewire-*/update o snapshot capturado na sessão do admin, chamando discard(1), com o próprio CSRF: 403, sem mudança no banco. A ação também reconfere o Gate (authorize em changeStatus) e filterStatus inválido é ignorado (in_array estrito).'
+  code_review: 'Componente fino. Transições em DemoRequest::TRANSITIONS: transição fora do fluxo não muda nada. Views sem {!! !!}. whatsAppNumber só com dígitos, 55 para 10/11 dígitos.'
+  coderabbit: 'Não executado (CLI só no WSL; ambiente macOS).'
+
+top_issues:
+  - id: 'DOC-001'
+    severity: low
+    finding: 'O Change Log não registra as transições do @dev (Ready → InProgress → InReview), que são obrigatórias no dev-develop-story. É o mesmo apontamento da 7.1.'
+    suggested_action: '@dev: registrar as transições nas próximas stories.'
+  - id: 'MNT-001'
+    severity: low
+    finding: 'O href mailto interpola o e-mail sem urlencode. O valor sai escapado em HTML e o e-mail vem validado pelo FormRequest, então não há XSS. Um e-mail com "?" ou "&", válido pela RFC, geraria um mailto com parâmetros.'
+    suggested_action: 'Opcional: usar rawurlencode no endereço.'
+  - id: 'REQ-001'
+    severity: low
+    finding: 'Admin sem restaurant_id (o perfil previsto para o Rafael) recebe 403 em /backoffice/settings. É comportamento anterior à story, fora do escopo, mas é o caminho que o Rafael vai usar.'
+    suggested_action: 'Avaliar com o @po se admin precisa de restaurante vinculado ou de outra tela inicial.'
+
+merge_blockers_reminder:
+  - 'Story 7.3 CA05: auditoria dos admins em produção. Com o Gate, todo admin vê nome, e-mail e telefone dos prospects.'
+  - 'Bloqueios da 7.1 (LGPD revisado, SMTP) e da 7.4 (cron do expurgo).'
+
+nfr_validation:
+  security: { status: PASS, notes: 'Gate na rota, no mount e em cada ação. Replay Livewire bloqueado. Sem HTML cru.' }
+  performance: { status: PASS, notes: 'Paginação de 20, índices em status e created_at.' }
+  reliability: { status: PASS, notes: 'Transições idempotentes; findOrFail.' }
+  maintainability: { status: PASS, notes: 'Lógica no model, testes nomeados por CA.' }
+
+waiver: { active: false }

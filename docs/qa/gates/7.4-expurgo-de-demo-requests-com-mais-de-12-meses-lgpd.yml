@@ -1,0 +1,33 @@
+schema: 1
+story: '7.4'
+story_title: 'Expurgo de demo_requests com mais de 12 meses (LGPD)'
+gate: CONCERNS
+status_reason: 'O comando demo-requests:purge cumpre CA01-06 e CA08-10: 12 meses com fronteira exata, todos os status, saída só com a contagem, idempotente e fora do Schedule. Fica aberto o CA07 (cron no hPanel e execução manual em produção), passo do Rafael que bloqueia o merge da 7.1.'
+reviewer: 'Quinn'
+updated: '2026-10-08T15:45:00-03:00'
+branch: 'integracao/teste-exploratorio @ d8013a4 (vinia-src), que integra feat/expurgo-7.4. Worktree detached do QA, removido ao fim.'
+
+evidence:
+  tests: 'php artisan test: 227/227 em SQLite e em MySQL 8.0.46 (container descartável). PurgeDemoRequestsTest, 6 testes: fronteira 12m+1d, 12m exatos e 11m; 3 status; saída sem PII; 0 e exit 0; idempotente; ausente do Schedule.'
+  manual_run: 'Banco real em SQLite com 4 pedidos (um de 13 meses novo, um de 12 meses + 2 dias descartado, dois recentes): saída "2 pedido(s) de demonstração com mais de 12 meses apagado(s).", exit 0, recentes intactos. A segunda execução dá "0 pedido(s) ...". schedule:list mostra só o queue:work.'
+  code_review: 'DELETE único por created_at < now()->subMonthsNoOverflow(12). RETENTION_MONTHS documentado como acoplado ao aviso. Sem dado pessoal na saída.'
+  guide: 'DEPLOY-HOSTINGER.md: linha de cron na §3.4, retenção na §6.2, item no checklist da §7 e sintoma na §11, com o log em backend/storage/logs/demo-requests-purge.log.'
+
+top_issues:
+  - id: 'REQ-001'
+    severity: medium
+    finding: 'O CA07 não foi executado: falta o cron diário no hPanel, a execução manual por SSH e a primeira linha no demo-requests-purge.log. Sem isso, a promessa de 12 meses do aviso não tem mecanismo em produção.'
+    suggested_action: 'Rafael cria o cron (modelo da story, PHP 8.3+), roda uma vez à mão e registra no Change Log antes do merge da 7.1.'
+  - id: 'MNT-001'
+    severity: low
+    finding: 'routes/console.php ainda diz que a fila é drenada pelo "cron do scheduler", o que contradiz o guia §1.1/§3.4. Está registrado como questão, fora do escopo.'
+    suggested_action: '@po: story curta de coerência.'
+  - id: 'DOC-001'
+    severity: low
+    finding: 'O Change Log não registra as transições Ready → InProgress → InReview do @dev.'
+    suggested_action: 'Registrar nas próximas stories.'
+
+auto_decisions:
+  - '[AUTO-DECISION] AC operacional (CA07) pendente → CONCERNS, e não FAIL (reason: o código e o guia estão completos e testados; o CA07 é execução em produção pelo Rafael, que a story define como pré-condição do merge da 7.1).'
+
+waiver: { active: false }
