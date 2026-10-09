@@ -1,0 +1,39 @@
+schema: 1
+story: '8.1'
+story_title: 'Contadores do dashboard por restaurante (Rótulos, Tablets, Sessões hoje)'
+gate: PASS
+status_reason: 'Os 17 CAs da 8.1 conferem no código, na suíte (SQLite e MySQL 8) e no navegador real. Os cartões batem com o banco nos 3 perfis, e o isolamento resiste a tampering pela URL. A virada do dia 22:45/23:00 de Brasília está correta em MySQL, com exatamente 3 consultas indexadas. Os dois itens que vieram junto na release (ícones da marca e largura total dos formulários) passam. Sem migration nova. Ficam só observações de baixa severidade, que não bloqueiam.'
+reviewer: 'Quinn'
+updated: '2026-10-09T18:40:00-03:00'
+branch: 'release/backoffice-8.1 @ 2d8c6c1 (vinia-src) = main 2e561b6 + feat/backoffice-contadores-8.1 + feat/icones-vinia (c952ce8, 7d699ef) + fix/configuracoes-largura-total (4c556c5). Worktree detached próprio do QA no scratchpad, removido ao fim. O worktree da release não foi tocado.'
+
+evidence:
+  tests_sqlite: 'php artisan test: 445/445 (167.067 asserções). php artisan view:cache executado sem erro.'
+  tests_mysql: 'MySQL 8.0 (vinia-mysql, banco descartável qa_rel81, apagado ao fim), filtro Dashboard|Backoffice|BrandIcons|ThemeViews: 301/301 (1.446 asserções). Confirmado que as migrations rodaram no MySQL.'
+  frontend: 'npm run build (Node 22) gera backend/public/tablet com favicon.svg, favicon-32.png e apple-touch-icon.png prefixados por /tablet/. vitest: 563/563. eslint: 0 erros e 1 warning, que já existia em SessionContext.tsx, fora do diff.'
+  mysql_boundary: 'Script no MySQL com sessões de A em 02:30Z/09 (23:30 de 08/10 local), 03:10Z/09 (encerrada), 18:00Z/09, 01:45Z/10 (22:45 local) e 03:00Z/10. Com now=02:00Z/10 (23:00 local), A conta 3, B conta 2 e o agregado conta 5. Com now=01:44Z, A=3. Com now=03:00Z/10 (00:00 local de 10/10), A=1 e B=0. A sessão das 22:45 conta e a das 23:30 de ontem não conta. Rótulo apagado (disponível e esgotado) fica fora: A mostra 4 disponíveis, 2 esgotados e 6 no total. Escopo none: 0 consultas.'
+  explain: 'Exatamente 3 consultas por escopo (restaurant e all). wines: ref em wines_restaurant_id_index, com deleted_at IS NULL e restaurant_id = ?. tablets: ref em tablets_restaurant_id_active_index (Using index). comensal_sessions: range em comensal_sessions_started_at_index com restaurant_id = ? no WHERE e intervalo semiaberto em UTC, sem função na coluna.'
+  browser: 'Chrome real (Playwright) em php artisan serve :9010, SQLite próprio com AdminSeeder, DemoSeeder e extras: Outro Bistro (5 rótulos, 1 tablet, 2 sessões hoje), Restaurante Vazio, owner/manager La Vigne, owner sem restaurante. owner e manager La Vigne: 8 disponíveis, 3 esgotados, 11 cadastrados, 1 tablet ativo de 2 e 1 revogado, 3 sessões, igual ao SELECT direto no banco. Admin sem restaurante: "Todos os restaurantes", 13/16, 2 de 3 tablets, 5 sessões (= La Vigne + Bistro). Owner sem restaurante: "—" nos três cartões, aviso e nenhum link. Restaurante vazio: 0/0/0, com links para wines/create e tablets. Tampering do owner com ?restaurant_id=2&restaurant=2&scope=all: continua vendo os números de La Vigne, e "Outro Bistro" não aparece no HTML. Grade com 3 colunas em 1366 e 1 coluna em 600, sem rolagem horizontal no dashboard em nenhum perfil/tema, fonte mínima de 12 px, Cache-Control no-store, private e 0 erros de console. Contraste: o pior texto fica em ~5,1:1 no claro (faint rgba(28,28,28,.64) sobre branco, calculado) e em 6,8:1 no escuro (medido).'
+  full_width: 'Restaurante, Tablets e Importar: o cartão ocupa 100% do container nos dois temas (1078/1078 px em 1366; 312/312 e 425/425 em 600). O modal de token (Regenerar) fica com 448 px centralizado e dentro do viewport em 1366 e em 600.'
+  icons: 'HTTP 200 com content-type correto: /favicon.ico image/vnd.microsoft.icon (3 tamanhos), /favicon.svg image/svg+xml, /favicon-32.png e /apple-touch-icon.png image/png (180x180), /tablet/favicon.svg, /tablet/favicon-32.png, /tablet/apple-touch-icon.png, /tablet/icon-192.png e manifest application/manifest+json. Landing, login e backoffice com 4 <link> (icon svg/png/ico + apple-touch-icon). /tablet/ com icon svg/png, apple-touch-icon e manifest. vite.svg removido.'
+  production_safety: 'git diff main...release: nenhum arquivo em database/ (0 migrations novas). .env.example ganha só a linha comentada # BUSINESS_TIMEZONE=America/Sao_Paulo, que é opcional. app.timezone continua UTC. A landing segue sem aviso de privacidade (o texto renderizado não contém privacidade/LGPD; o comentário do hotfix está preservado).'
+
+top_issues:
+  - id: 'UX-001'
+    severity: low
+    finding: 'Em 600 px, as telas Tablets e Vinhos têm rolagem horizontal (scrollWidth 661 contra 600). Não é regressão: recolocar max-w-lg no cartão mantém 661, e Vinhos (fora do diff) também rola. A causa é a sidebar fixa do layout, que não recolhe abaixo de md, somada ao conteúdo mínimo das tabelas. O dashboard não rola.'
+    suggested_action: '@po: story de layout responsivo do backoffice (sidebar recolhível).'
+  - id: 'MNT-001'
+    severity: low
+    finding: 'Pint acusa binary_operator_spaces em tests/Feature/BrandIconsTest.php (setas alinhadas). O CI não roda Pint, e é só estilo em arquivo de teste.'
+    suggested_action: 'Rodar vendor/bin/pint no arquivo num próximo commit.'
+  - id: 'PERF-001'
+    severity: low
+    finding: 'A contagem de sessões usa o índice de started_at e filtra restaurant_id depois. Com o volume atual é irrelevante. Com milhões de sessões, um índice composto (restaurant_id, started_at) seria o ideal.'
+    suggested_action: 'Avaliar quando o volume crescer. Não entra nesta release (sem migration).'
+
+auto_decisions:
+  - '[AUTO-DECISION] Rolagem horizontal em 600 px nas telas Tablets/Vinhos → low, não bloqueia (reason: medido que é pré-existente e independente do max-w removido).'
+  - '[AUTO-DECISION] Status da 8.1 após PASS → Done (reason: story-lifecycle, PASS leva InReview -> Done. O deploy é passo do @devops/Rafael).'
+
+waiver: { active: false }
