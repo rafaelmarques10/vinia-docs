@@ -1,0 +1,57 @@
+schema: 1
+story: '8.2'
+story_title: 'Minha conta: o usuário edita o próprio e-mail e a própria senha'
+gate: CONCERNS
+status_reason: 'Os 21 CAs foram conferidos na suíte, por HTTP adversarial e no Chrome real. A senha atual é exigida nas duas trocas, a troca de senha derruba as outras sessões e o cookie "lembrar de mim", a troca de e-mail não derruba ninguém, e o deploy não desconecta as sessões já abertas. Ficam riscos de severidade média, que não bloqueiam o código mas pedem ação do Rafael antes do deploy: entrada em array gera 500, TRUSTED_PROXIES é ignorado (afeta a chave do freio de login) e a consulta de e-mails com maiúscula das Dev Notes dá 0 em MySQL.'
+reviewer: 'Quinn'
+updated: '2026-10-09T19:10:00-03:00'
+branch: 'feat/backoffice-minha-conta-8.2 @ fd7983e (4 commits sobre a main 2e561b6). Worktrees detached próprios do QA no scratchpad (branch e main), removidos ao fim. O worktree do @dev não foi tocado.'
+
+evidence:
+  tests_sqlite: 'php artisan test: 472/472 (167.161 asserções). php artisan view:cache sem erro. npm run build (Node 22) OK.'
+  tests_mysql: 'NÃO executado pelo QA: o acesso às credenciais do container vinia-mysql foi negado pela política de permissões do ambiente. Vale a evidência do @dev (MySQL 8.0.46, 348/348 nos diretórios relevantes). Nenhum banco MySQL foi criado pelo QA.'
+  migrations: 'git diff main...branch -- database/: vazio. Nenhuma migration nova.'
+  deploy_sessions: 'Servidor da main (:9021) e da branch (:9020) com o mesmo SQLite, APP_KEY e SESSION_DRIVER=database. Sessão aberta na main: o dashboard da branch responde 200. Só o cookie "lembrar de mim" da main: 200. Ligar authenticateSessions() não desconecta ninguém no deploy.'
+  password_change: 'Dois ou três contextos do mesmo usuário. Depois da troca de senha: o contexto que trocou continua (200) e o ID de sessão rotacionou. O outro contexto cai no login, tanto em GET (302 /backoffice/login) quanto numa ação Livewire (busca em /wines, que vai para /login). O contexto novo só com o cookie remember_web antigo: 302 login. O remember_token mudou no banco. A senha antiga falha, e a nova entra digitando o e-mail em MAIÚSCULAS.'
+  email_change: 'Depois da troca de e-mail, os outros contextos continuam 200 (inclusive a ação Livewire). O valor "  Novo.Outro@Lavigne.COM " fica gravado como novo.outro@lavigne.com e o rodapé mostra o e-mail novo.'
+  tampering: 'Sem current_password ou com ele vazio: 302 com erro e nada gravado. Com user_id=2 na query e id/user_id=2, role=admin e restaurant_id=99 no corpo, e senha correta, só o usuário 1 muda, e só o e-mail (role e restaurant_id intactos). E-mail de outro usuário em outra caixa (OUTRO@...): "Este e-mail já está em uso.", sem revelar o dono. GET ?_method=PUT: 405. PATCH: 405. Sem _token: 419. PUT de convidado: 302 login. Com Accept JSON a rota da conta continua em redirect 302 (shouldRenderJsonWhen não foi ampliado). /backoffice/tema segue 422 application/json.'
+  throttle_account: 'No mesmo minuto, 5 PUTs com senha errada: 302 cada. O 6º (rota de e-mail, com a senha CERTA): 429 com "Muitas tentativas. Aguarde um minuto e tente de novo.", e o e-mail não mudou. Outro usuário no mesmo minuto: não é limitado. GET /backoffice/conta: 200.'
+  throttle_login: 'Com 5 falhas, a 6ª tentativa com a senha certa e o e-mail em outra caixa é bloqueada: "Muitas tentativas de entrada. Aguarde 59 segundos e tente de novo.", com o e-mail mantido. Depois de 62 s, o login certo entra (sem bloqueio permanente). Na tabela cache, as chaves ficam no formato login|sha1|IP, sem e-mail em claro. X-Forwarded-For NÃO é honrado (o IP fica sempre como REMOTE_ADDR), então a rotação de XFF não contorna o freio. Ver SEC-002.'
+  audit_log: 'audit-2026-10-09.log tem só os eventos account.credential_check_failed, account.email_changed, account.password_changed e auth.login_throttled, com {user_id, ip} ou {ip}. Grep em todos os logs (audit e laravel) pelas senhas usadas (NovaSenha123, SenhaNova2026, errada, curta1, OutraSenha99), por "@lavigne", "remember_token" e "password": 0 ocorrências. LOG_LEVEL=warning e as linhas info do audit gravadas.'
+  error_log: 'Erros de validação não vão para o laravel.log. Os únicos ERROR são os 500 de entrada em array (SEC-001). No trace, a senha aparece como SensitiveParameterValue e o hash bcrypt truncado em 15 caracteres ($2y$12$ + parte do salt), o que não dá para explorar.'
+  browser: 'Chrome real (Playwright), php artisan serve :9020, SQLite próprio + DemoSeeder, SESSION_DRIVER=database. Claro e escuro em 1366 e 600 px: lang pt-BR, sem rolagem horizontal, painel rgb(255,255,255) no claro e oklch(0.21…) no escuro. O link "Minha conta" aparece no dashboard, em /wines e em /settings (os dois layouts), com 44 px e aria-current=page na tela. Botões "Salvar e-mail" e "Salvar senha" com 44 px. Todos os campos têm label for e autocomplete email/current-password/new-password. Ordem de Tab: e-mail, repetir, senha atual, Salvar e-mail, senha atual, nova, confirmar, Salvar senha, todos com anel de foco; o link do menu tem ring de 2 px. Erro de senha: aria-invalid=true, aria-describedby apontando para a ajuda e para o erro, resumo role=alert em português, nenhuma mensagem em inglês, campos de senha vazios e a senha digitada ausente do HTML. Sucesso em role=status ("Senha atualizada. Os outros dispositivos foram desconectados.").'
+
+top_issues:
+  - id: 'SEC-001'
+    severity: medium
+    finding: 'Entrada em array derruba as rotas novas com 500. current_password[]=x em PUT /conta/email e em /conta/senha dá TypeError em password_verify (a regra current_password roda mesmo depois de "string" falhar, sem bail). email[]=x faz o GET /conta seguinte dar 500 (old("email") é array em htmlspecialchars). Nada é gravado, o throttle conta a tentativa e só afeta o próprio usuário autenticado. O login tem o mesmo defeito (password[] dá 500; email[] faz o GET /login seguinte dar 500), e ele já existe na main.'
+    suggested_action: '@dev: "bail" antes de current_password (ou validar string com bail) nos dois FormRequests e no login; nas views, só repopular old() quando for string. Fazer antes ou junto da 8.3.'
+  - id: 'SEC-002'
+    severity: medium
+    finding: 'TRUSTED_PROXIES vindo só do .env é ignorado nas requisições HTTP. bootstrap/app.php lê env() dentro de withMiddleware, que roda quando o HttpKernel é resolvido, antes do Dotenv carregar. Comprovado com probe: sem a variável no ambiente do processo, TrustProxies::$alwaysTrustProxies=NULL e ip()=127.0.0.1 mesmo com XFF; com a variável no processo, ip()=203.0.113.7. O defeito já existe na main, mas define a chave do freio de login (CA21). Se em produção o REMOTE_ADDR for o IP de um proxy/CDN, todos os usuários compartilham o mesmo IP, e a chave e-mail+IP vira "só e-mail": quem conhece um e-mail mantém o dono dele sem conseguir entrar indefinidamente, com 5 falhas por minuto (o bloqueio nunca é permanente e cai 60 s depois da última rodada). Medido: com IP compartilhado, a vítima fica bloqueada. Efeito positivo: o XFF forjado não contorna o freio.'
+    suggested_action: 'Rafael, antes do deploy: em produção, SELECT ip_address, COUNT(*) FROM sessions GROUP BY ip_address. Se houver um único IP para todos, registrar o risco e abrir uma story para corrigir a leitura do TRUSTED_PROXIES (config em vez de env() no bootstrap, ou variável no ambiente do PHP) e/ou mudar a chave do login. Se os IPs forem variados, o risco fica restrito a quem está no mesmo IP.'
+  - id: 'DOC-001'
+    severity: medium
+    finding: 'A consulta das Dev Notes, User::whereRaw("email <> LOWER(email)")->count(), devolve 0 no MySQL com utf8mb4_unicode_ci, porque a comparação ignora a caixa e os espaços finais (PAD SPACE). Ela não detecta os e-mails com maiúscula. Além disso, o login agora minusculiza o que é digitado: se a coluna tiver collation sensível a caixa (_bin/_cs), o usuário com maiúscula gravada deixa de entrar. Isso foi reproduzido no SQLite (linha "Maiusc@Lavigne.COM" + e-mail digitado exatamente igual: volta ao login).'
+    suggested_action: 'Rafael, antes do deploy, usar o procedimento seguro do QA Results (collation, contagem com BINARY, colisões, backup, UPDATE) e registrar o resultado no Change Log.'
+  - id: 'TEST-001'
+    severity: low
+    finding: 'A suíte em MySQL 8 não foi reexecutada pelo QA (credenciais do container negadas pelo ambiente). Só existe a evidência do @dev.'
+    suggested_action: '@devops: confirmar o MySQL verde no CI/pre-push antes do merge.'
+  - id: 'A11Y-001'
+    severity: low
+    finding: 'Depois de um envio com erro, o foco volta ao <body>, e não ao resumo role=alert nem ao primeiro campo inválido. O role=alert anuncia o erro, mas quem usa o teclado precisa navegar de novo.'
+    suggested_action: '@ux-design-expert/@dev: autofocus no primeiro campo com erro (melhoria futura).'
+
+auto_decisions:
+  - '[AUTO-DECISION] 500 em entrada array → medium, não FAIL (reason: exige sessão autenticada, nada é gravado, não há bypass da senha atual nem do throttle, e o mesmo defeito já existe no login da main).'
+  - '[AUTO-DECISION] TRUSTED_PROXIES ignorado → medium, não bloqueia o código da 8.2 (reason: defeito anterior; o freio continua sem bloqueio permanente; o impacto depende da topologia da Hostinger, que o Rafael verifica com uma consulta).'
+  - '[AUTO-DECISION] MySQL não reexecutado → low (reason: permissão do ambiente negou o acesso às credenciais; a evidência do @dev é específica e a lógica sensível ao banco foi coberta pela análise do collation).'
+  - '[AUTO-DECISION] Status da 8.2 após CONCERNS → Done (reason: story-lifecycle; as pré-condições de produção ficam com o Rafael/@devops).'
+
+deploy:
+  blocks: 'Nenhum item do código bloqueia o merge. São PRÉ-CONDIÇÕES DE PUBLICAÇÃO (bloqueiam o deploy até serem feitas pelo Rafael): (1) auditoria dos admins da 7.3 CA05; (2) contagem e normalização de e-mails com maiúscula pelo procedimento com BINARY (DOC-001), conferindo o collation de users.email; (3) CACHE_STORE de produção diferente de array.'
+  does_not_block: 'SEC-001, SEC-002 (com a consulta de IPs registrada), TEST-001 (desde que o CI MySQL fique verde) e A11Y-001.'
+  session_effect: 'Ligar authenticateSessions() NÃO desconecta as sessões já abertas nem os cookies "lembrar de mim" (medido). Na primeira requisição, a sessão só passa a guardar o hash.'
+
+waiver: { active: false }

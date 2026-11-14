@@ -184,7 +184,7 @@ App\Models\User::create(['name' => 'Seu Nome', 'email' => 'voce@dominio.com', 'p
 exit
 ```
 
-O `slug` é único, em minúsculas e com hífens. A senha fica no histórico do tinker: troque-a depois do primeiro login.
+O `slug` é único, em minúsculas e com hífens. A senha fica no histórico do tinker: troque-a depois do primeiro login, em **Minha conta** (link no rodapé do menu do backoffice).
 Depois cadastre pelo backoffice, nesta ordem: **Configurações** (nome real, logo, cores) → **Vinhos** (um a um ou **Importar**, com o
 modelo em `/backoffice/wines/import/template`) → **Tablets** (ver seção 6.1).
 
