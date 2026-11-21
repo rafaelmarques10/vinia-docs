@@ -1,6 +1,9 @@
 # Deploy do Vinia na Hostinger (plano Business, hospedagem compartilhada)
 
-Guia de produção para o backoffice (Laravel + Livewire), a PWA do tablet (React) e a Sofia (sommelier IA).
+Guia de produção para o site e o backoffice (Laravel + Livewire), a PWA do tablet e do celular (React), a Sofia (sommelier IA),
+o cadastro self-service e a cobrança pelo Asaas.
+
+> **A produção ainda roda a versão anterior ao SaaS.** Antes do próximo push da `main`, siga a seção 5.1.
 
 > Este guia vive em `vinia-docs`; os caminhos `scripts/`, `backend/` e `.github/` se referem ao repositório de código `vinia-src`.
 >
@@ -127,6 +130,30 @@ para `/dev/null`: o arquivo recebe **uma linha de contagem por dia** (ex.: `0 pe
 apagado(s).`), nunca nome, e-mail ou telefone, e é a prova de que o expurgo roda. Conferir: `tail backend/storage/logs/demo-requests-purge.log`.
 Para testar à mão por SSH (a partir de `vinia-app`): `php backend/artisan demo-requests:purge`.
 
+**Mais três crons diários (Stories 9.3 e 9.4).** Seguem as mesmas regras dos dois acima: chamam o artisan **direto**, usam PHP 8.3+
+e gravam num log próprio só contagens, nunca nome, e-mail ou documento. Os três aceitam `--dry-run`, que conta sem apagar nem
+enviar nada, para testar à mão por SSH. Crie-os **depois** do deploy que traz os comandos (seção 5.1); antes disso, o artisan
+responde que o comando não existe.
+
+```cron
+0 4 * * * /usr/bin/php /home/<usuario>/domains/<dominio>/vinia-app/backend/artisan comensal-sessions:purge >> /home/<usuario>/domains/<dominio>/vinia-app/backend/storage/logs/comensal-sessions-purge.log 2>&1
+30 4 * * * /usr/bin/php /home/<usuario>/domains/<dominio>/vinia-app/backend/artisan signups:purge-unverified >> /home/<usuario>/domains/<dominio>/vinia-app/backend/storage/logs/signups-purge.log 2>&1
+0 9 * * * /usr/bin/php /home/<usuario>/domains/<dominio>/vinia-app/backend/artisan trial:send-reminders >> /home/<usuario>/domains/<dominio>/vinia-app/backend/storage/logs/trial-reminders.log 2>&1
+```
+
+Os cinco crons da produção:
+
+| Comando | Quando | O que faz | Sem ele |
+|---|---|---|---|
+| `queue:work --stop-when-empty --max-time=50` | a cada minuto | drena a fila: importação de planilha, e-mails do cadastro, lembretes, avisos de cota e de cobrança | a importação nunca termina e os e-mails enfileirados não saem |
+| `demo-requests:purge` | 03:15 | apaga pedidos de demonstração com mais de 12 meses (Story 7.4) | a promessa do aviso de privacidade não é cumprida |
+| `comensal-sessions:purge` | 04:00 | apaga sessões de celular com mais de 12 meses e as perguntas delas à Sofia, e também as linhas vencidas da tabela `cache` (Story 9.3) | o aparelho (`device_id`) e o IP ficam guardados além do prazo |
+| `signups:purge-unverified` | 04:30 | apaga cadastros que nunca confirmaram o e-mail e o restaurante vazio de cada um (Story 9.4) | cadastros abandonados se acumulam no banco |
+| `trial:send-reminders` | 09:00 | envia ao dono, pela fila, os lembretes do teste de 14 dias nos dias 7, 12 e 14 (Story 9.4) | o dono não é avisado de que o teste vai acabar |
+
+Os horários seguem o relógio do servidor e podem mudar, desde que os crons diários fiquem fora do horário de uso. Confira no hPanel se o
+plano aceita cinco crons.
+
 ## 4. Primeiro deploy
 
 ### 4.1 Acesso SSH e clone
@@ -165,9 +192,10 @@ ls -l public/storage                       # deve mostrar: storage -> ../storage
 
 ### 4.3 Primeiro acesso (admin e restaurante)
 
-O backoffice não tem tela de cadastro de restaurante, então o primeiro acesso é criado por linha de comando
-(a senha é gravada com hash automaticamente). Os perfis são `admin`, `owner` e `manager`. **Vincule sempre o usuário a um
-restaurante (`restaurant_id`), inclusive o `admin`**: Configurações, Vinhos e Tablets recusam usuário sem restaurante.
+Os restaurantes clientes se cadastram sozinhos em `https://<dominio>/cadastro`, com teste de 14 dias (seção 6.3). A linha de
+comando abaixo fica para a conta do operador e para algum caso especial; depois, ajuste o plano do restaurante em **Planos**, no
+backoffice. A senha é gravada com hash automaticamente. Os perfis são `admin`, `owner`, `manager` e `sommelier`. **Vincule sempre o
+usuário a um restaurante (`restaurant_id`), inclusive o `admin`**: Identidade, Carta de vinhos e Tablets recusam usuário sem restaurante.
 
 **O perfil `admin` é reservado ao operador do Vinia (Rafael)** e **nunca** deve ser usado na conta de um restaurante
 cliente: o `admin` vê dados de todos (por exemplo, os pedidos de demonstração da landing, com nome, e-mail e telefone).
@@ -184,9 +212,9 @@ App\Models\User::create(['name' => 'Seu Nome', 'email' => 'voce@dominio.com', 'p
 exit
 ```
 
-O `slug` é único, em minúsculas e com hífens. A senha fica no histórico do tinker: troque-a depois do primeiro login, em **Minha conta** (link no rodapé do menu do backoffice).
-Depois cadastre pelo backoffice, nesta ordem: **Configurações** (nome real, logo, cores) → **Vinhos** (um a um ou **Importar**, com o
-modelo em `/backoffice/wines/import/template`) → **Tablets** (ver seção 6.1).
+O `slug` é único, em minúsculas e com hífens. A senha fica no histórico do tinker: troque-a depois do primeiro login, em **Minha conta** (ícone no cabeçalho do backoffice).
+Depois cadastre pelo backoffice, nesta ordem: **Identidade** (nome real, logo, cores) → **Carta de vinhos** (um a um ou **Importar planilha**,
+com o modelo em `/backoffice/wines/import/template`) → **Tablets** (ver seção 6.1).
 
 ### 4.4 Assets (build do front)
 
@@ -252,6 +280,62 @@ Disparo manual: `gh workflow run "Deploy Hostinger"`.
 **Sobre versionar `public/build`:** não versionamos. Os assets são gerados no CI e enviados por rsync; assim o git
 fica limpo e não há conflito de merge em arquivos gerados. Contingência sem GitHub Actions: `scripts/push-assets.sh --deploy`.
 
+### 5.1 Primeira publicação da versão SaaS (Stories 9.1 a 9.8 e layout de 2026-11)
+
+A produção roda a versão anterior ao SaaS (`8dee49f`). O próximo push da `main` leva tudo de uma vez:
+- o isolamento por restaurante;
+- a carta pelo celular;
+- o cadastro self-service;
+- planos e cota;
+- a cobrança pelo Asaas e os créditos extras;
+- o layout novo do site, do backoffice e do app;
+- **14 migrations**.
+
+O `deploy.sh` roda o `migrate` sozinho, então **prepare o servidor antes do push**.
+
+**Antes do push:**
+
+1. **Dump do banco** (seção 8), guardado fora do servidor.
+2. **Consultas de conferência** (por SSH com `mysql` ou pelo phpMyAdmin). As duas precisam voltar vazias ou zero:
+
+   ```sql
+   -- Story 9.1: interação sem sessão faz falhar o NOT NULL de ai_interactions.restaurant_id
+   SELECT COUNT(*) FROM ai_interactions i LEFT JOIN comensal_sessions s ON s.id = i.session_id WHERE s.id IS NULL;
+   -- Story 9.2: slug fora do padrão quebra a carta pública /r/{slug}
+   SELECT id, slug FROM restaurants WHERE slug NOT REGEXP '^[A-Za-z0-9_-]+$';
+   ```
+
+   Se a primeira não der zero, corrija ou apague essas interações. Se a segunda trouxer linhas, troque o slug desses restaurantes.
+3. **MariaDB ou MySQL 8?** Confira com `mysql --version`. A suíte roda em SQLite e MySQL 8, e uma migration altera uma coluna já
+   existente (`->change()`). Se for MariaDB, teste antes numa cópia: restaure o dump num MariaDB da mesma versão no seu computador
+   (Docker) e rode `php artisan migrate` a partir da `main`.
+4. **`.env` de produção** (seções 6.3, 6.4 e 9): `TRIAL_HASH_KEY`, `ONBOARDING_CONTACT_EMAIL`, `MAIL_*` (agora obrigatórios),
+   `BILLING_GATEWAY=asaas`, `ASAAS_ENV=production`, `ASAAS_API_KEY` e `ASAAS_WEBHOOK_TOKEN`.
+5. **DNS do e-mail:** SPF, DKIM e DMARC (seção 6.3).
+6. **Groq fora do nível gratuito** (seção 6).
+7. **Admins:** `SELECT id, email, restaurant_id FROM users WHERE role = 'admin';` deve trazer só a conta do operador.
+
+**Push:** `git push origin main` e acompanhe com `gh run watch`. **Se o `migrate` falhar**, o `deploy.sh` tira o site da
+manutenção com o código novo e o banco pela metade: volte ao `.previous-release` (seção 8, emergência), rode `optimize` e
+restaure o dump se alguma migration já tiver rodado.
+
+**Depois do deploy:**
+
+1. Crie os três crons diários novos (seção 3.4) e rode cada comando uma vez por SSH com `--dry-run`.
+2. Cadastre o webhook no painel do Asaas de produção (seção 6.4).
+3. Todo restaurante que já existia vira **legado** (sem cota nem limite). A tabela `trial_claims` nasce nesta publicação, então
+   nenhum deles vira `trial`, e a consulta prévia da Story 9.5 não se aplica. Combine os valores e tire a marca de cada um em **Planos**;
+   para um cliente específico, use o campo **Cota**.
+4. Se mudar o `.env` depois do deploy, rode `php backend/artisan optimize:clear && php backend/artisan optimize`. O `deploy.sh` só faz isso
+   durante o deploy.
+5. Testes:
+   - Sofia (seção 6).
+   - Cadastro completo com um e-mail seu (seção 6.3).
+   - Uma assinatura e um pacote de créditos pagos de verdade (seção 6.4).
+   - IP real e QR impresso (seção 6.5).
+   - Envio de foto do rótulo.
+   - No iPad, se o ícone ou a abertura ainda mostrarem a aparência antiga, reinstale a PWA (seção 6.1).
+
 ## 6. Sofia (sommelier IA)
 
 **Decisão:** a Sofia **não usa streaming** (SSE). No compartilhado o LiteSpeed pode bufferizar a resposta, e o
@@ -270,6 +354,11 @@ Variáveis: `GROQ_API_KEY` (só no `.env`, nunca vai ao front), `GROQ_MODEL`, `S
 
 `SOFIA_QUEUE=true` enfileira a Sofia em vez de processar após a resposta. Use **apenas** como plano B: a fila só
 anda a cada minuto (cron), então a resposta pode demorar até ~1 min.
+
+**Conta da Groq:** suba para o Dev Tier antes de ter clientes. O nível gratuito limita a conta a 8.000 tokens por minuto, o que
+trava a Sofia com poucas consultas ao mesmo tempo, e nele a Groq não devolveu os tokens em cache. Depois de subir, repita duas
+consultas iguais e confira se `tokens_cached` aparece em `ai_usage`. O custo por consulta usa `config/ai_pricing.php` (preço por milhão
+de tokens e o câmbio `AI_USD_BRL`): confira os valores contra a tabela atual da Groq.
 
 ### Como testar a Sofia em produção
 
@@ -365,6 +454,61 @@ procure no log: `grep -i "pedido de demonstração" backend/storage/logs/laravel
 o cabeçalho `X-Robots-Tag: noindex` (pelo Laravel e pelo `public/.htaccess`, para os arquivos estáticos de `public/tablet`).
 Conferir: `curl -sI https://<dominio>/tablet/ | grep -i x-robots-tag`.
 
+### 6.3 Cadastro self-service e e-mails transacionais (Story 9.4)
+
+`https://<dominio>/cadastro` cria o restaurante e o dono, com CPF ou CNPJ. O **teste de 14 dias começa quando o dono confirma o
+e-mail**, pelo link assinado que a fila envia. Por isso, nesta versão o SMTP (seção 6.2) deixa de ser opcional: sem e-mail, ninguém
+termina o cadastro, recupera a senha nem aceita um convite de equipe.
+
+- **`TRIAL_HASH_KEY`:** chave que impede repetir o teste com o mesmo CPF. Gere **uma vez**, com
+  `php artisan tinker --execute="echo base64_encode(random_bytes(32));"`, e guarde junto com a `APP_KEY`. Sem ela, o cadastro
+  por CPF falha de propósito. Trocar a chave faz o app esquecer os CPFs que já usaram o teste.
+- **`ONBOARDING_CONTACT_EMAIL`:** contato mostrado no cadastro e nos avisos de cota. Se ficar vazio, vale o `DEMO_NOTIFY_TO`.
+- **SPF, DKIM e DMARC** no DNS do domínio (hPanel → Domínios → DNS), com os valores que a área de E-mails do hPanel indica. Sem eles,
+  o e-mail de confirmação cai no spam e o cadastro trava.
+- **`APP_URL` exato**, em `https`: a fila gera o link de confirmação fora de um request, a partir do `APP_URL`.
+
+**Testar:** faça um cadastro com um e-mail seu, confirme pelo link e percorra o assistente de 4 passos até a carta.
+
+### 6.4 Cobrança pelo Asaas (Stories 9.7 e 9.8)
+
+O dono assina em **Meu plano**, pelo link hospedado do Asaas, e compra ali os pacotes de créditos extras. O acesso segue o pagamento
+confirmado: o Asaas avisa pelo webhook, e o app reconsulta a cobrança antes de liberar. Os avisos por e-mail usam a fila.
+
+1. **`.env`:** `BILLING_GATEWAY=asaas`, `ASAAS_ENV=production`, `ASAAS_API_KEY` (a chave **de produção**, diferente da do sandbox) e
+   `ASAAS_WEBHOOK_TOKEN` (32 a 255 caracteres, diferente da chave). `BILLING_TOLERANCE_DAYS` é opcional. Com `BILLING_GATEWAY=fake`,
+   o padrão do exemplo, nada é cobrado e nenhum pagamento se confirma.
+2. **Webhook**, cadastrado no painel do Asaas de produção:
+   - URL `https://<dominio>/api/webhooks/asaas`, com o mesmo token do `.env`;
+   - eventos de cobrança: confirmada, recebida, vencida, estornada e chargeback;
+   - evento de assinatura removida.
+
+   Sandbox e produção têm webhooks separados. Token ausente ou diferente recebe `401`.
+3. **Nota fiscal:** só ligue `ASAAS_NFSE_ENABLED=true` depois de definir com a contabilidade:
+   - o serviço municipal (`ASAAS_NFSE_SERVICE_ID` ou `ASAAS_NFSE_SERVICE_CODE` e `ASAAS_NFSE_SERVICE_NAME`);
+   - a alíquota de ISS (`ASAAS_NFSE_ISS_PERCENT`);
+   - o CST de PIS/COFINS (`ASAAS_NFSE_PIS_COFINS_CST`).
+4. **Preços:** os planos ficam em `config/plans.php`, o pacote de créditos em `config/billing.php` (`credits`). Mudar exige deploy.
+5. **Tipo de cobrança:** hoje o código usa `UNDEFINED`, em que o cliente escolhe Pix, boleto ou cartão a cada cobrança. Trocar para
+   `CREDIT_CARD`, em que o cartão renova sozinho, é mudança de código.
+
+**Testar:** pague uma assinatura e um pacote de créditos de verdade. Confira a coluna Cobrança em **Planos** e o saldo em
+**Meu plano**. Se o acesso não liberar, veja as entregas do webhook no painel do Asaas e o log.
+
+### 6.5 Carta pelo celular, com o QR da mesa (Stories 9.2 e 9.3)
+
+`https://<dominio>/r/<slug>` abre a carta pública do restaurante. Com a chave do QR (`#k=...`), abre também uma sessão curta da Sofia
+no celular do cliente. O acesso por celular vem **desligado**; o gestor liga em **Acesso por celular**, e só no plano assinado.
+
+- **Limites:** são as variáveis `SOFIA_PHONE_*` do `.env`. Os valores do exemplo são os padrões; só mude para apertar ou afrouxar um limite.
+- **IP real:** as cotas por IP dependem de o app enxergar o IP do visitante, e não o do proxy (`TRUSTED_PROXIES=*`, seção 3.3). Para
+  conferir, troque a senha em **Minha conta** e veja em `backend/storage/logs/audit-AAAA-MM-DD.log`: o `ip` da linha
+  `account.password_changed` deve ser o seu IP público, e não `127.0.0.1` nem um IP interno.
+- **QR impresso:** teste em iPhone e em Android, com a câmera, o Google Lens, o WhatsApp e o Instagram. A chave fica depois do `#`,
+  e alguns leitores e navegadores embutidos cortam essa parte.
+- **Retenção:** o cron `comensal-sessions:purge` (seção 3.4).
+- **Troca da `APP_KEY`:** se ela mudar, ponha a antiga em `APP_PREVIOUS_KEYS`, porque a chave do QR é gravada criptografada.
+
 ## 7. Checklist de go-live
 
 - [ ] PHP 8.3+ no hPanel e no CLI; extensões da seção 3.1
@@ -390,6 +534,15 @@ Conferir: `curl -sI https://<dominio>/tablet/ | grep -i x-robots-tag`.
 - [ ] Landing em `https://<dominio>/` com o aviso de privacidade revisado (sem o marcador `[CONTATO PARA EXCLUSÃO]`)
 - [ ] `MAIL_*` e `DEMO_NOTIFY_TO` preenchidos; um pedido de teste pela landing gravado e o e-mail de aviso recebido (seção 6.2)
 - [ ] `https://<dominio>/robots.txt` com `Disallow: /backoffice` e `Disallow: /tablet`
+- [ ] Conferências de antes do push da versão SaaS feitas e dump guardado fora do servidor (seção 5.1)
+- [ ] Os três crons diários novos criados (seção 3.4), cada comando rodado uma vez com `--dry-run`, sem erro
+- [ ] `TRIAL_HASH_KEY` gerada e guardada junto com a `APP_KEY`; `ONBOARDING_CONTACT_EMAIL` preenchido
+- [ ] SPF, DKIM e DMARC no DNS; um cadastro de teste confirmado pelo e-mail (seção 6.3)
+- [ ] `BILLING_GATEWAY=asaas` com chave e token de produção; webhook cadastrado; uma assinatura e um pacote pagos e liberados (seção 6.4)
+- [ ] Groq fora do nível gratuito; `config/ai_pricing.php` conferido (seção 6)
+- [ ] IP real conferido no `audit` e QR impresso testado em iPhone e Android (seção 6.5)
+- [ ] Só a conta do operador com `role = 'admin'`
+- [ ] Restaurantes antigos revisados em **Planos** (marca de legado retirada depois de combinar os valores)
 
 ## 8. Rollback
 
@@ -430,9 +583,15 @@ Obrigatórias: `APP_KEY` (gerado), `APP_URL`, `DB_DATABASE`, `DB_USERNAME`, `DB_
 `SANCTUM_STATEFUL_DOMAINS` (o domínio, sem `https://`) e `TABLET_URL`.
 Opcionais: `CLOUDFLARE_R2_*` (sem elas as imagens ficam em `storage/app/public`), `TRUSTED_PROXIES`, `SOFIA_*`.
 E-mail de aviso da landing (seção 6.2): `MAIL_MAILER`, `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`,
-`MAIL_SCHEME`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` e `DEMO_NOTIFY_TO`. Sem eles a landing funciona e os pedidos são
-gravados, mas o aviso por e-mail não sai. `MAIL_FROM_ADDRESS` vem como `no-reply@vinia.ia.br` no exemplo; troque pelo
-endereço da caixa. `MAIL_TIMEOUT` (segundos, padrão 10) já vem preenchido; mantenha abaixo de 30.
+`MAIL_SCHEME`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` e `DEMO_NOTIFY_TO`. Sem eles, a landing funciona e grava os pedidos,
+mas o cadastro self-service não (seção 6.3): com o cadastro aberto, os `MAIL_*` são **obrigatórios**. `MAIL_FROM_ADDRESS` vem
+como `no-reply@vinia.ia.br` no exemplo; troque pelo endereço da caixa. `MAIL_TIMEOUT` (segundos, padrão 10) já vem preenchido;
+mantenha abaixo de 30.
+Cadastro (seção 6.3): `TRIAL_HASH_KEY` (obrigatória) e `ONBOARDING_CONTACT_EMAIL`.
+Cobrança (seção 6.4): `BILLING_GATEWAY`, `ASAAS_ENV`, `ASAAS_API_KEY` e `ASAAS_WEBHOOK_TOKEN`, obrigatórias para cobrar. Opcionais:
+`BILLING_TOLERANCE_DAYS`, `ASAAS_NFSE_*` e `AI_USD_BRL`.
+Sofia e celular (seções 6 e 6.5): `SOFIA_TABLET_QUERIES_PER_SESSION` e `SOFIA_PHONE_*` já vêm com os padrões;
+`SOFIA_PROMPT_FULL_CARTA_MAX` (60) e `SOFIA_PROMPT_SELECTION_SIZE` (40) são opcionais.
 Os demais valores já vêm corretos no `backend/.env.example`.
 
 ## 10. Quando migrar para uma VPS
@@ -475,3 +634,9 @@ polling por SSE/WebSocket.
 | Pedido de demonstração gravado, mas o e-mail não chega | `MAIL_*` ou `DEMO_NOTIFY_TO` vazios/errados, ou porta e `MAIL_SCHEME` trocados | Ver o `warning` no log; conferir a seção 6.2 e rodar `php artisan optimize:clear && php artisan optimize` |
 | Pedidos de demonstração antigos não são apagados | Cron do expurgo ausente, usando `schedule:run`, ou com PHP errado (abaixo de 8.3) | `tail backend/storage/logs/demo-requests-purge.log`: sem linha do dia, o cron não rodou; conferir o cron do `demo-requests:purge` (seção 3.4) e rodar à mão `php backend/artisan demo-requests:purge` |
 | Ícone do iPad abre a carta "sem vinhos" | Ícone criado sem o token no `start_url` | Procedimento da seção 6.1 (apagar ícone, limpar dados do site, reinstalar) |
+| Site no ar, mas com erro depois de um deploy com migration | O `migrate` falhou no meio e o site voltou com o código novo | Seção 5.1: voltar ao `.previous-release` (seção 8) e restaurar o dump |
+| Cadastro por CPF dá erro | `TRIAL_HASH_KEY` vazia | Gerar a chave (seção 6.3) e rodar `php backend/artisan optimize:clear && php backend/artisan optimize` |
+| E-mail de confirmação não chega ou cai no spam | Cron da fila parado, `MAIL_*` errados ou SPF/DKIM/DMARC ausentes | Conferir o cron do `queue:work` (seção 3.4) e o DNS do e-mail (seção 6.3) |
+| Link de confirmação aponta para outro endereço | `APP_URL` errado | Corrigir o `APP_URL` e rodar `optimize:clear` e `optimize` |
+| Pagamento feito, mas o acesso não libera | Webhook não cadastrado, token diferente (`401`) ou cadastrado só no sandbox | Seção 6.4; o painel do Asaas mostra as entregas do webhook |
+| Celular: "muitas tentativas" para todas as mesas | O app vê o IP do proxy no lugar do visitante | Seção 6.5 (IP real) |
