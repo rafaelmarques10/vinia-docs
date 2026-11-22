@@ -309,7 +309,7 @@ O `deploy.sh` roda o `migrate` sozinho, então **prepare o servidor antes do pus
 3. **MariaDB ou MySQL 8?** Confira com `mysql --version`. A suíte roda em SQLite e MySQL 8, e uma migration altera uma coluna já
    existente (`->change()`). Se for MariaDB, teste antes numa cópia: restaure o dump num MariaDB da mesma versão no seu computador
    (Docker) e rode `php artisan migrate` a partir da `main`.
-4. **`.env` de produção** (seções 6.3, 6.4 e 9): `TRIAL_HASH_KEY`, `ONBOARDING_CONTACT_EMAIL`, `MAIL_*` (agora obrigatórios),
+4. **`.env` de produção** (seções 6.3, 6.4 e 9): `SIGNUP_ENABLED=false` enquanto houver testes, `TRIAL_HASH_KEY`, `ONBOARDING_CONTACT_EMAIL`, `MAIL_*` (agora obrigatórios),
    `BILLING_GATEWAY=asaas`, `ASAAS_ENV=production`, `ASAAS_API_KEY` e `ASAAS_WEBHOOK_TOKEN`.
 5. **DNS do e-mail:** SPF, DKIM e DMARC (seção 6.3).
 6. **Groq fora do nível gratuito** (seção 6).
@@ -456,6 +456,10 @@ Conferir: `curl -sI https://<dominio>/tablet/ | grep -i x-robots-tag`.
 
 ### 6.3 Cadastro self-service e e-mails transacionais (Story 9.4)
 
+**Chave do cadastro: `SIGNUP_ENABLED`.** Sem ela, ou com `false`, o cadastro fica **fechado**: `/cadastro` mostra "Os cadastros abrem
+em breve" (com o `ONBOARDING_CONTACT_EMAIL`, se houver), o envio responde `404` e o login não oferece o teste. Contas existentes,
+convites e o assistente seguem funcionando. Abra com `SIGNUP_ENABLED=true` (e `optimize:clear` + `optimize`) só quando for receber clientes.
+
 `https://<dominio>/cadastro` cria o restaurante e o dono, com CPF ou CNPJ. O **teste de 14 dias começa quando o dono confirma o
 e-mail**, pelo link assinado que a fila envia. Por isso, nesta versão o SMTP (seção 6.2) deixa de ser opcional: sem e-mail, ninguém
 termina o cadastro, recupera a senha nem aceita um convite de equipe.
@@ -537,6 +541,7 @@ no celular do cliente. O acesso por celular vem **desligado**; o gestor liga em 
 - [ ] Conferências de antes do push da versão SaaS feitas e dump guardado fora do servidor (seção 5.1)
 - [ ] Os três crons diários novos criados (seção 3.4), cada comando rodado uma vez com `--dry-run`, sem erro
 - [ ] `TRIAL_HASH_KEY` gerada e guardada junto com a `APP_KEY`; `ONBOARDING_CONTACT_EMAIL` preenchido
+- [ ] `SIGNUP_ENABLED=true` só no dia de abrir para clientes (até lá, `/cadastro` mostra "Os cadastros abrem em breve")
 - [ ] SPF, DKIM e DMARC no DNS; um cadastro de teste confirmado pelo e-mail (seção 6.3)
 - [ ] `BILLING_GATEWAY=asaas` com chave e token de produção; webhook cadastrado; uma assinatura e um pacote pagos e liberados (seção 6.4)
 - [ ] Groq fora do nível gratuito; `config/ai_pricing.php` conferido (seção 6)
@@ -587,7 +592,7 @@ E-mail de aviso da landing (seção 6.2): `MAIL_MAILER`, `MAIL_HOST`, `MAIL_PORT
 mas o cadastro self-service não (seção 6.3): com o cadastro aberto, os `MAIL_*` são **obrigatórios**. `MAIL_FROM_ADDRESS` vem
 como `no-reply@vinia.ia.br` no exemplo; troque pelo endereço da caixa. `MAIL_TIMEOUT` (segundos, padrão 10) já vem preenchido;
 mantenha abaixo de 30.
-Cadastro (seção 6.3): `TRIAL_HASH_KEY` (obrigatória) e `ONBOARDING_CONTACT_EMAIL`.
+Cadastro (seção 6.3): `SIGNUP_ENABLED` (ausente = fechado), `TRIAL_HASH_KEY` (obrigatória) e `ONBOARDING_CONTACT_EMAIL`.
 Cobrança (seção 6.4): `BILLING_GATEWAY`, `ASAAS_ENV`, `ASAAS_API_KEY` e `ASAAS_WEBHOOK_TOKEN`, obrigatórias para cobrar. Opcionais:
 `BILLING_TOLERANCE_DAYS`, `ASAAS_NFSE_*` e `AI_USD_BRL`.
 Sofia e celular (seções 6 e 6.5): `SOFIA_TABLET_QUERIES_PER_SESSION` e `SOFIA_PHONE_*` já vêm com os padrões;
