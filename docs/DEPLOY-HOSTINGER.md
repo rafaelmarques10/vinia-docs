@@ -3,7 +3,12 @@
 Guia de produção para o site e o backoffice (Laravel + Livewire), a PWA do tablet e do celular (React), a Sofia (sommelier IA),
 o cadastro self-service e a cobrança pelo Asaas.
 
-> **A produção ainda roda a versão anterior ao SaaS.** Antes do próximo push da `main`, siga a seção 5.1.
+> **A versão SaaS está em produção desde 2026-11-22**, com o Asaas em **sandbox** e o cadastro **fechado**
+> (`SIGNUP_ENABLED=false`) durante os testes de integração. Antes de abrir para clientes:
+> - troque para as chaves de produção do Asaas (seção 6.4);
+> - configure o `MAIL_*` (seção 6.3);
+> - suba a Groq para o Dev Tier (seção 6);
+> - só então ligue `SIGNUP_ENABLED=true`.
 
 > Este guia vive em `vinia-docs`; os caminhos `scripts/`, `backend/` e `.github/` se referem ao repositório de código `vinia-src`.
 >
@@ -282,7 +287,11 @@ fica limpo e não há conflito de merge em arquivos gerados. Contingência sem G
 
 ### 5.1 Primeira publicação da versão SaaS (Stories 9.1 a 9.8 e layout de 2026-11)
 
-A produção roda a versão anterior ao SaaS (`8dee49f`). O próximo push da `main` leva tudo de uma vez:
+**Feita em 2026-11-22** (`8dee49f` → `2baf0b7`). A seção fica como registro e como roteiro para uma reinstalação a partir de
+uma versão anterior ao SaaS. O banco da Hostinger é **MariaDB 11.8**. As 14 migrations foram testadas antes numa cópia do dump
+(MariaDB 11.8 em Docker) e rodaram sem erro na produção.
+
+A publicação levou tudo de uma vez:
 - o isolamento por restaurante;
 - a carta pelo celular;
 - o cadastro self-service;
@@ -485,9 +494,12 @@ confirmado: o Asaas avisa pelo webhook, e o app reconsulta a cobrança antes de 
 2. **Webhook**, cadastrado no painel do Asaas de produção:
    - URL `https://<dominio>/api/webhooks/asaas`, com o mesmo token do `.env`;
    - eventos de cobrança: confirmada, recebida, vencida, estornada e chargeback;
-   - evento de assinatura removida.
+   - evento de assinatura removida;
+   - um **e-mail** para os avisos de falha de entrega. O Asaas recusa o cadastro sem ele ("O parâmetro email deve ser informado").
 
-   Sandbox e produção têm webhooks separados. Token ausente ou diferente recebe `401`.
+   Sandbox e produção têm webhooks separados. Token ausente ou diferente recebe `401`. Para conferir a entrega no sandbox, rode
+   `billing:sandbox-check --document=<CPF de teste> --package --receive-in-cash` por SSH. Em seguida, `PAYMENT_RECEIVED` aparece na
+   tabela `billing_events` como `ignored`, porque a cobrança de teste não é de nenhum restaurante.
 3. **Nota fiscal:** só ligue `ASAAS_NFSE_ENABLED=true` depois de definir com a contabilidade:
    - o serviço municipal (`ASAAS_NFSE_SERVICE_ID` ou `ASAAS_NFSE_SERVICE_CODE` e `ASAAS_NFSE_SERVICE_NAME`);
    - a alíquota de ISS (`ASAAS_NFSE_ISS_PERCENT`);
